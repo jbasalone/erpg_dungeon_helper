@@ -1,0 +1,1 @@
+chmod +x ./dungeon_solvers/D12/D12_LINUX_SOLVER ./dungeon_solvers/D14/D14_LINUX_SOLVER ./dungeon_solvers/D15/D15_LINUX_SOLVER

@@ -41,6 +41,9 @@ RANDOM_EMOJIS = "🎈🎆🎇🧨✨🎉🎊🎃🎄🎋🎍🎎🎏🎐🎑🧧
                 "🥀☘🌱🌲🍂🍁🍀🌿🌵🌴🌳🌾"
 
 
+# dung_helpers.py (at top or anywhere)
+def is_channel_allowed(channel_id, *a, **kw):
+    return True
 
 
 class D13HelperData:
@@ -155,92 +158,60 @@ D13_QUESTIONS = [
 
 
 
-def get_answer(_type: str, question: str, left_answer, center_answer, right_answer):
-    try:
-        # Numeric sorting logic
-        if question in [
-            "How many miliseconds have passed since you started this dungeon?",
-            "How many arena cookies do you have right now?"
-        ]:
-            answers = {
-                "left": int(left_answer),
-                "center": int(center_answer),
-                "right": int(right_answer)
-            }
-            sorted_items = sorted(answers.items(), key=lambda x: x[1])
-            if _type == "correct":
-                return sorted_items[1][0]  # middle
-            elif _type == "not_so_wrong":
-                return sorted_items[0][0]  # lowest
-            elif _type == "wrong":
-                return sorted_items[2][0]  # highest
+def get_answer(answer_type, question, left, center, right):
+    q = question.strip().lower()
+    if q == "how many miliseconds have passed since you started this dungeon?":
+        sorted_answers = sorted([int(left), int(center), int(right)])
+        mapping = {
+            'correct': sorted_answers[1],
+            'not_so_wrong': sorted_answers[0],
+            'wrong': sorted_answers[2],
+        }
+        val = mapping.get(answer_type, sorted_answers[0])
+        for v in (left, center, right):
+            if v == str(val): return v
+        return left
 
-        elif question == "What number am i thinking on right now?":
-            answers = {
-                "left": int(left_answer),
-                "center": int(center_answer),
-                "right": int(right_answer)
-            }
-            sorted_items = sorted(answers.items(), key=lambda x: x[1], reverse=True)
-            if _type == "correct":
-                return sorted_items[0][0]  # highest
-            elif _type == "not_so_wrong":
-                return sorted_items[1][0]
-            elif _type == "wrong":
-                return sorted_items[2][0]
+    if q == "how many arena cookies do you have right now?":
+        sorted_answers = sorted([int(left), int(center), int(right)])
+        mapping = {
+            'correct': sorted_answers[0],
+            'not_so_wrong': sorted_answers[1],
+            'wrong': sorted_answers[2],
+        }
+        val = mapping.get(answer_type, sorted_answers[0])
+        for v in (left, center, right):
+            if v == str(val): return v
+        return left
 
-        # Direct lookup
-        print(f"[D13 DEBUG] Searching for question: '{question}'")
+    if q == "what number am i thinking on right now?":
+        sorted_answers = sorted([int(left), int(center), int(right)], reverse=True)
+        mapping = {
+            'correct': sorted_answers[0],
+            'not_so_wrong': sorted_answers[1],
+            'wrong': sorted_answers[2],
+        }
+        val = mapping.get(answer_type, sorted_answers[0])
+        for v in (left, center, right):
+            if v == str(val): return v
+        return left
 
-        def clean(text):
-            return text.lower().replace("*", "").replace("_", "").replace("`", "").strip()
+    for item in D13_QUESTIONS:
+        if item.get('question', '').strip().lower() == q:
+            if answer_type in item and item[answer_type][0] in (left, center, right):
+                return item[answer_type][0]
+    return left
 
-        normalized_q = clean(question)
-        for possible in D13_QUESTIONS:
-            if clean(possible['question']) == normalized_q:
-                expected, expected_index = possible.get(_type, (None, None))
+def return_move(answer, left, center, right):
+    if answer == left:
+        return f"⬅ LEFT ({left})"
+    if answer == center:
+        return f"⬆ CENTER ({center})"
+    if answer == right:
+        return f"➡ RIGHT ({right})"
+    return f"⬅ LEFT ({left})"
 
-                # Normalize options
-                options = [left_answer.strip(), center_answer.strip(), right_answer.strip()]
-                labels = ["left", "center", "right"]
-                expected_clean = expected.strip().lower() if expected else ""
 
-                print(f"[D13 MATCH] Question matched: {possible['question']}")
-                print(f"[D13 ANSWER] Expecting: '{expected}' of type {_type}")
-
-                for i, opt in enumerate(options):
-                    if opt.lower() == expected_clean:
-                        return labels[i]
-
-                # Not found — try index fallback
-                print(f"[D13 ERROR] Expected answer '{expected}' for type '{_type}' does not match any option:")
-                print(f"            LEFT: '{left_answer}', CENTER: '{center_answer}', RIGHT: '{right_answer}'")
-
-                if expected_index is not None and 0 <= expected_index < len(options):
-                    print(f"[D13 FALLBACK] Using index fallback: returning {labels[expected_index]} (index {expected_index})")
-                    return labels[expected_index]
-
-                print(f"[D13 FALLBACK] No match or fallback index — returning 'right'")
-                return "right"
-
-    except Exception as e:
-        print(f"[D13 ERROR] Failed to determine answer: {e}")
-
-    return "right"
-
-""""
-def return_move(answer: str, left_answer, center_answer):
-    return '⬅ LEFT' if answer == left_answer else '⬆ CENTER' if answer == center_answer else '➡ RIGHT'
-"""
-def return_move(answer: str, left_answer=None, center_answer=None, right_answer=None):
-    if answer == "left":
-        return f"⬅ LEFT ({left_answer})"
-    elif answer == "center":
-        return f"⬆ CENTER ({center_answer})"
-    elif answer == "right":
-        return f"➡ RIGHT ({right_answer})"
-    else:
-        return "❓ UNKNOWN"
 
 async def get_d13_action(
         d13_data,
@@ -253,38 +224,55 @@ async def get_d13_action(
         center_answer,
         right_answer
 ):
-    messed_up_text = ''
-
-    # --- Dynamically set phase/step based on current game state ---
-    # Priority: Room 15+ -> Step 2; Dragon ≤ 8 -> Step 3; Room ≤ 8 -> Step 4; else Step 1
-
-    # If user is "out of sync", recalculate last_step based on board state instead of always step 1
-    new_step = 1
-    if room_number >= 15:
-        new_step = 2
-    if dragon_room <= 8:
-        new_step = 3
+    # Calculate step from current state only
     if room_number <= 8:
-        new_step = 4
+        current_step = 4
+    elif dragon_room <= 8:
+        current_step = 3
+    elif room_number >= 15:
+        current_step = 2
+    else:
+        current_step = 1
 
-    # Show a "messed up" message only if the step changed *backward* (i.e., user made a wrong move)
-    if d13_data.last_step is not None and new_step < d13_data.last_step:
-        messed_up_text = " (<:ep_greenleaf:1375735418292801567> recalculating from your current position because you messed up)"
-    d13_data.last_step = new_step
+    previous_step = getattr(d13_data, "last_step", None)
+    messed_up_text = ""
+    if previous_step is None:
+        messed_up_text = " (<:ep_greenleaf:1375735418292801567> recalculating after a bot restart or lost sync!)"
+        numeric_qs = [
+            "How many arena cookies do you have right now?",
+            "How many miliseconds have passed since you started this dungeon?",
+            "What number am i thinking on right now?"
+        ]
+        if question in numeric_qs:
+            try:
+                sorted_values = sorted([int(left_answer), int(center_answer), int(right_answer)])
+                median_value = str(sorted_values[1])
+                if median_value == left_answer:
+                    answer = left_answer
+                elif median_value == center_answer:
+                    answer = center_answer
+                elif median_value == right_answer:
+                    answer = right_answer
+                else:
+                    answer = center_answer  # fallback
+            except Exception:
+                answer = center_answer
+        else:
+            answer = get_answer('correct', question, left_answer, center_answer, right_answer)
+    else:
+        if current_step == 1:
+            answer = get_answer('not_so_wrong', question, left_answer, center_answer, right_answer)
+        elif current_step == 2:
+            answer = get_answer('wrong', question, left_answer, center_answer, right_answer)
+        elif current_step == 3:
+            answer = get_answer('not_so_wrong', question, left_answer, center_answer, right_answer)
+        elif current_step == 4:
+            answer = get_answer('correct', question, left_answer, center_answer, right_answer)
+        else:
+            answer = get_answer('not_so_wrong', question, left_answer, center_answer, right_answer)
 
-    # Pick the right answer type for the new step
-    if d13_data.last_step == 1:
-        answer = get_answer('not_so_wrong', question, left_answer, center_answer, right_answer)
-        return return_move(answer, left_answer, center_answer, right_answer) + messed_up_text
-    elif d13_data.last_step == 2:
-        answer = get_answer('wrong', question, left_answer, center_answer, right_answer)
-        return return_move(answer, left_answer, center_answer, right_answer) + messed_up_text
-    elif d13_data.last_step == 3:
-        answer = get_answer('not_so_wrong', question, left_answer, center_answer, right_answer)
-        return return_move(answer, left_answer, center_answer, right_answer) + messed_up_text
-    elif d13_data.last_step == 4:
-        answer = get_answer('correct', question, left_answer, center_answer, right_answer)
-        return return_move(answer, left_answer, center_answer, right_answer) + messed_up_text
+    d13_data.last_step = current_step
+    return return_move(answer, left_answer, center_answer, right_answer) + messed_up_text
 
 MOVE_EMOJI = {'LEFT': "⬅", "RIGHT": "➡", "UP": "⬆", "DOWN": "⬇", "ATTACK": "⚔", "PASS TURN": "🤚🏽"}
 
@@ -701,16 +689,38 @@ async def d13_helper(
         from_message,
         bot_answer_message=None,
         trigger_message=None,
-        helpers=None,             # Add this (default None)
-        message_based=False       # Add this (default False)
+        helpers=None,
+        message_based=False
 ):
-    """
-    Universal D13 handler: supports both message-based (`rpg dungeon`) and slash (`/dungeon`) dungeons.
-    For message-based: always sends a new message after each completed embed.
-    For slash: edits the bot's answer message in place.
-    """
+    # Defensive: always use a helpers dict
+    if helpers is None:
+        helpers = DUNGEON13_HELPERS
 
-    # -- Helper to check if this is a final, ready-to-answer embed (message-based)
+    # Patch: Always check channel allowed FIRST, before touching helpers
+    if not is_channel_allowed(channel.id):
+        return
+
+    # Defensive state creation/fixup
+    data = helpers.get(channel.id)
+    if not isinstance(data, D13HelperData):
+        data = D13HelperData()
+        helpers[channel.id] = data
+
+    # Repair all required fields in case of missing/corrupt state
+    if not hasattr(data, 'turn_number') or not isinstance(data.turn_number, int):
+        data.turn_number = 1
+    if not hasattr(data, 'last_answered_key'):
+        data.last_answered_key = None
+    if not hasattr(data, 'previous_room_number'):
+        data.previous_room_number = None
+    if not hasattr(data, 'previous_dragon_room'):
+        data.previous_dragon_room = None
+    if not hasattr(data, 'message'):
+        data.message = None
+    if not hasattr(data, 'last_step'):
+        data.last_step = 1
+
+    # Helper for message-based gating (avoids double answers in prod)
     def is_final_rpg_dungeon_embed(embed):
         try:
             has_question = any(
@@ -724,29 +734,24 @@ async def d13_helper(
         except Exception:
             return False
 
-    # ==== COMBAT CHECK ====
+    # === COMBAT CHECK ===
     combat_text = next(
         (f.value for f in embed.fields if "is in the same room as you" in f.value.lower()), None
     )
     if combat_text:
-        if channel.id in DUNGEON13_HELPERS:
-            data = DUNGEON13_HELPERS[channel.id]
+        if channel.id in helpers:
+            data = helpers[channel.id]
             content = f"> **{data.turn_number}. ⚔ ATTACK**"
-            if is_slash_dungeon(trigger_message):  # or use message in context
+            if is_slash_dungeon(trigger_message):
                 await bot_answer_message.edit(content=content)
             else:
-                await channel.send(content)
-                del DUNGEON13_HELPERS[channel.id]
+                data.message = await channel.send(content)
+                del helpers[channel.id]
         else:
             await channel.send("> **1. ⚔ ATTACK**")
-            try:
-                data = D13HelperData()
-                data.message = await channel.send("> **1. ⚔ ATTACK**")
-            except Exception as e:
-                print(f"[D13 BOT MSG ERROR] {e}")
         return
 
-    # ==== QUESTION EXTRACTION ====
+    # === QUESTION EXTRACTION ===
     question_field = next(
         (f for f in embed.fields if getattr(f, "name", "").strip().startswith("**QUESTION:**__")),
         None
@@ -761,12 +766,11 @@ async def d13_helper(
             await channel.send("❌ Could not parse question field.")
         return
 
-    # ==== FINAL EMBED CHECK ====
-    # Only respond if the message is ready (for message-based)
+    # === Only respond if the embed is final (message-based dungeons only) ===
     if not is_slash_dungeon(trigger_message) and not is_final_rpg_dungeon_embed(embed):
         return
 
-    # ==== ANSWER PARSING ====
+    # === ANSWER PARSING ===
     try:
         if "**QUESTION:**__" in question_field.name:
             question = question_field.name.replace("**QUESTION:**__", "").strip()
@@ -783,7 +787,7 @@ async def d13_helper(
             await channel.send(f"❌ Failed to parse answers: {e}")
         return
 
-    # ==== LOCATION EXTRACTION ====
+    # === LOCATION EXTRACTION ===
     location_field = next(
         (f for f in embed.fields if "room:" in getattr(f, "value", "").lower() and "dragon" in getattr(f, "value", "").lower()),
         None
@@ -795,31 +799,23 @@ async def d13_helper(
 
     try:
         location_value = location_field.value
-        room_number = int(location_value.split("**ROOM:** `")[1].split("`\n")[0])
-        dragon_room = int(location_value.split("ULTRA-OMEGA DRAGON** is ")[1].split()[0])
+        room_match = re.search(r"\*\*room:\*\* `(\d+)`", location_value, re.I)
+        dragon_match = re.search(r"ultra-omega dragon\*\* is (\d+)", location_value, re.I)
+        if not room_match or not dragon_match:
+            raise ValueError("Could not find room or dragon_room in embed value")
+        room_number = int(room_match.group(1))
+        dragon_room = int(dragon_match.group(1))
     except Exception as e:
         if is_slash_dungeon(trigger_message):
             await channel.send(f"❌ Failed to parse location: {e}")
         return
 
-    # ==== STATE SETUP ====
-    if channel.id not in DUNGEON13_HELPERS:
-        data = D13HelperData()
-        data.turn_number = 1
-        data.last_answered_key = None
-        data.previous_room_number = None
-        data.previous_dragon_room = None
-        DUNGEON13_HELPERS[channel.id] = data
-    else:
-        data = DUNGEON13_HELPERS[channel.id]
-
-    # ==== DEDUPLICATION ====
+    # === DEDUPLICATION ===
     dedup_key = (room_number, dragon_room, question)
     if getattr(data, 'last_answered_key', None) == dedup_key:
-        print(f"[D13 DEDUP] Already answered for {dedup_key}")
-        return  # Already responded for this state
+        return
 
-    # ==== GET ACTION ====
+    # === GET ACTION ===
     action = await get_d13_action(
         data, room_number, dragon_room,
         data.previous_room_number, data.previous_dragon_room,
@@ -828,18 +824,15 @@ async def d13_helper(
     data.previous_room_number = room_number
     data.previous_dragon_room = dragon_room
 
-    # ==== SEND OR EDIT ANSWER ====
     content = f"> **{data.turn_number}. {action}**"
-    # Only edit for slash dungeons; always send new for message-based
-    if is_slash_dungeon(trigger_message):  # or use message in context
+    if is_slash_dungeon(trigger_message):
         await bot_answer_message.edit(content=content)
     else:
-        await channel.send(content)
-
+        data.message = await channel.send(content)
 
     data.turn_number += 1
     data.last_answered_key = dedup_key
-    DUNGEON13_HELPERS[channel.id] = data
+    helpers[channel.id] = data
     return data.message
 
 def apply_d14_move(map_matrix, y, x, hp, move):
@@ -876,6 +869,7 @@ def apply_d14_move(map_matrix, y, x, hp, move):
     # If you want to implement tile HP effects, add here using MAP[y][x].
 
     return y, x, hp
+
 
 """async def solve_d15_c(BOARD_TEXT, HP):
     X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE = process_board(BOARD_TEXT)
@@ -1036,7 +1030,7 @@ def apply_move(board_text: str, move: str, HP: int) -> str:
 def verify_d15_solution(BOARD, HP, SEQUENCE):
     X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE = process_board(BOARD)
 
-        # print_d15(X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE, HP, 'INITAL BOARD')
+    # print_d15(X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE, HP, 'INITAL BOARD')
     for action in SEQUENCE:
         if action == 'switch':
             if MODE == 1:
@@ -1425,7 +1419,7 @@ def verify_d15_solution(BOARD, HP, SEQUENCE):
                 elif title == 'BLUE':
                     BOARD[i][j] = 'YELLOW'
 
-               # print_d15(X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE, HP, action)
+            # print_d15(X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE, HP, action)
 
     if ((BOSSY - 1 == Y and BOSSX == X) or (BOSSY - 1 == CATY and BOSSX == CATX) or (
             BOSSY - 1 == DOGY and BOSSX == DOGX) or (BOSSY - 1 == DRAGONY and BOSSX == DRAGONX)) and \

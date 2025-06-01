@@ -857,36 +857,6 @@ def apply_d14_move(map_matrix, y, x, hp, move):
 
     return y, x, hp
 
-
-"""async def solve_d15_c(BOARD_TEXT, HP):
-    X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, BOSSX, BOSSY, BOARD, MODE = process_board(BOARD_TEXT)
-    if system() == 'Linux':
-        command = "./dungeon_solvers/D15/D15_LINUX_SOLVER "
-    else:
-        command = "dungeon_solvers/D15/D15-2-Solver.exe "
-    for line in BOARD:
-        for title in line:
-            command += {"YELLOW": "0 ", "GREEN": "1 ", "RED": "2 ", "BLUE": "3 "}.get(title, "0 ")
-    BOUND = HP - 18 if HP >= 152 else 4
-    command += f"{X} {Y} {CATX} {CATY} {DOGX} {DOGY} {DRAGONX} {DRAGONY} {BOSSX} {BOSSY} {MODE} {HP} {BOUND}"
-    program, *args = command.split()
-    attempts = 0
-    MAX_ATTEMPTS = 200
-    while attempts < MAX_ATTEMPTS:
-        proc = await asyncio.create_subprocess_exec(program, *args,
-                                                    stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE)
-        await proc.wait()
-        stdout, stderr = await proc.communicate()
-        output = stdout.decode('utf-8').strip()
-        solution = [x for x in output.lower().split(", ") if x and not x.startswith("attempts:")]
-        if verify_d15_solution(BOARD_TEXT, HP, solution):
-            return solution, attempts
-        if attempts % 5 == 0:
-            await asyncio.sleep(0.05)
-        attempts += 1
-    return [], attempts"""
-
 def apply_move(board_text: str, move: str, HP: int) -> str:
     # 1) unpack
     X, Y, CATX, CATY, DOGX, DOGY, DRAGONX, DRAGONY, \

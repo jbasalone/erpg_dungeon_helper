@@ -18,16 +18,15 @@ tile_ids = {
     'ULTRAEDGYarmor': '4'
 }
 
+
 class D12Data:
-    def __init__(self, channel, current_index, solution, message, x, y, required_hp: int, last_msg_id=None):
-        self.channel: discord.TextChannel = channel
-        self.current_index: int = current_index
-        self.solution: list = solution
+    def __init__(self, channel, current_index, solution, message, x, y, last_msg_id=None):
+        self.channel = channel
+        self.current_index = current_index
+        self.solution = solution
         self.message = message
         self.x = x
         self.y = y
-        self.is_required_hp_fine = False
-        self.required_hp = required_hp
         self.last_msg_id = last_msg_id
 
 async def handle_dungeon_12(
@@ -39,15 +38,31 @@ async def handle_dungeon_12(
 ):
     # Parse board and HP
     if embed.author.name and ' — dungeon' in embed.author.name:
-        board = embed.fields[0].value.split("—\n\n:")[1]
+        board_text = embed.fields[0].value.split("—\n\n:")[1]
         hp = int(embed.fields[0].value.split('** — :heart: ')[1].split('/')[0].replace(',', ''))
         hp_is_exact = True
     else:
         if channel.id in settings.DUNGEON12_HELPERS:
             del settings.DUNGEON12_HELPERS[channel.id]
-        board = embed.fields[0].value
+        board_text = embed.fields[0].value
         hp = 901
         hp_is_exact = False
+
+    try:
+        board, y, x = d12_parse_full_board_and_pos(
+            board_text, embed.fields[2].value.split('Currently on ')[1].split('\n')[0])
+        orbs = int(embed.fields[2].value.split('**Energy orbs**: ')[1].split('/')[0])
+        quick_move = d12_check_win(board, y, x, orbs)
+        if quick_move:
+            msg_txt = f"> **Optimal move:** `{quick_move}` — you can win{' right now!' if quick_move=='ATTACK' else ' in one move!'}"
+            if is_slash_dungeon(message) if message else False:
+                answer_msg = bot_answer_message or await channel.send(content=msg_txt)
+                await answer_msg.edit(content=msg_txt)
+            else:
+                answer_msg = await channel.send(content=msg_txt)
+            return answer_msg
+    except Exception as exc:
+        print(f"[D12] Quick win check failed: {exc}")
 
     # Win detection
     win = await handle_d12_winning_embed(embed, channel, from_new_message)
@@ -57,82 +72,25 @@ async def handle_dungeon_12(
     dungeon_id = channel.id
     event_msg_id = getattr(message, "id", None)
 
-    # If currently searching, warn user not to move
-    if dungeon_id in settings.DUNGEON12_HELPERS and type(settings.DUNGEON12_HELPERS[dungeon_id]) == int:
-        warning_key = f"d12_warn_{dungeon_id}"
-        try:
-            if not hasattr(settings, "DUNGEON12_WARNINGS"):
-                settings.DUNGEON12_WARNINGS = {}
-            warn_msg = settings.DUNGEON12_WARNINGS.get(warning_key)
-            if warn_msg and not warn_msg.deleted:
-                await warn_msg.edit(content=":stop_sign: I am recalculating, don't move!")
-            else:
-                warn_msg = await channel.send(":stop_sign: I am recalculating, don't move!")
-                settings.DUNGEON12_WARNINGS[warning_key] = warn_msg
-        except Exception as exc:
-            print(f"[D12] Error sending recalculating warning: {exc}")
-        return
-
-    # Existing solver state: check move validity and preview next moves
+    # --- Performance-optimized: Only reroute if deviation ---
     if dungeon_id in settings.DUNGEON12_HELPERS and isinstance(settings.DUNGEON12_HELPERS[dungeon_id], D12Data):
         data: D12Data = settings.DUNGEON12_HELPERS[dungeon_id]
-        if data.last_msg_id is not None and event_msg_id is not None and event_msg_id < data.last_msg_id:
-            print(f"[D12] Out-of-order message ignored: {event_msg_id} < {data.last_msg_id}")
-            return
+        prev_x, prev_y = data.x, data.y
+        prev_index = data.current_index
 
-        board = embed.fields[0].value.split("—\n\n:")[1]
-        new_y, new_x = get_x_y_d12(board)
-        if new_x == data.x and new_y == data.y:
-            return data.message
-
-        # HP check before any move logic
-        if not data.is_required_hp_fine:
-            currently_on = embed.fields[2].value.split('Currently on ')[1].split('\n')[0]
-            currently_on_tile_id = tile_ids[currently_on.replace(':', '')]
-            before_hp = (
-                (hp - 5) + 30 if currently_on_tile_id == '0' else
-                hp + 500 + 30 if currently_on_tile_id == '1' else
-                hp + 25 + 30 if currently_on_tile_id == '2' else
-                hp + 30
-            )
-            if before_hp > data.required_hp:
-                data.is_required_hp_fine = True
-            else:
-                content = "<:ep_greenleaf:1375735418292801567> Why you don't have the recommended 901HP for dungeon 12? The bot started looking for a new solution"
-                try:
-                    if from_new_message:
-                        answer_msg = await channel.send(content=content)
-                    else:
-                        answer_msg = data.message or bot_answer_message
-                        if answer_msg:
-                            await answer_msg.edit(content=content)
-                        else:
-                            answer_msg = await channel.send(content=content)
-                except Exception as exc:
-                    print(f"[D12] Error editing message: {exc}")
-                    answer_msg = await channel.send(content=content)
-                if dungeon_id in settings.DUNGEON12_HELPERS:
-                    del settings.DUNGEON12_HELPERS[dungeon_id]
-                return answer_msg
-
-        # -- MOVE HANDLING LOGIC --
-        dx = new_x - data.x
-        dy = new_y - data.y
+        dx, dy = x - prev_x, y - prev_y
         move_map = {(0, -1): 'UP', (0, 1): 'DOWN', (-1, 0): 'LEFT', (1, 0): 'RIGHT'}
         user_move = move_map.get((dx, dy))
         expected_move = None
         try:
-            expected_move = data.solution[data.current_index].upper()
+            expected_move = data.solution[prev_index].upper()
         except Exception:
-            pass  # Only if index goes out of bounds
-
-        print(f"[D12 DEBUG] User pos ({new_x},{new_y}) Prev pos ({data.x},{data.y}) User move: {user_move}, Expected: {expected_move}, Index: {data.current_index}")
+            pass
 
         if user_move == expected_move:
             data.current_index += 1
-            data.x = new_x
-            data.y = new_y
-
+            data.x = x
+            data.y = y
             move_preview_n = 3
             next_moves = [
                 data.solution[data.current_index + i].upper()
@@ -141,7 +99,6 @@ async def handle_dungeon_12(
             ]
             moves_block = f"[{', '.join(next_moves)}]"
             content = f"> **Next moves:** {moves_block}"
-
             try:
                 if is_slash_dungeon(message) if message else False:
                     answer_msg = data.message or bot_answer_message
@@ -155,25 +112,47 @@ async def handle_dungeon_12(
             data.last_msg_id = event_msg_id
             return answer_msg
         else:
-            content = "<:ep_greenleaf:1375735418292801567> You messed up. I will try to find another solution. Be more careful!"
-            try:
-                if from_new_message:
-                    answer_msg = await channel.send(content=content)
-                else:
-                    answer_msg = bot_answer_message or data.message
-                    if answer_msg:
-                        await answer_msg.edit(content=content)
-                    else:
-                        answer_msg = await channel.send(content=content)
-            except Exception as exc:
-                print(f"[D12] Error editing message: {exc}")
-                answer_msg = await channel.send(content=content)
+            # User deviated: reroute!
             if dungeon_id in settings.DUNGEON12_HELPERS:
                 del settings.DUNGEON12_HELPERS[dungeon_id]
-            print(f"[D12] Wrong move detected, recalculating solution...")
-            # Do not return: lets new solver run immediately on next event
+            recalculating_txt = ":stop_sign: You deviated from the plan, recalculating optimal route from your new position!"
+            try:
+                recalculating_msg = await channel.send(content=recalculating_txt)
+            except Exception:
+                recalculating_msg = await channel.send(content=recalculating_txt)
+            # Reroute from actual state
+            board_for_solver = board_text
+            currently_on = embed.fields[2].value.split('Currently on ')[1].split('\n')[0]
+            orbs = int(embed.fields[2].value.split('**Energy orbs**: ')[1].split('/')[0])
+            hp = int(embed.fields[0].value.split('** — :heart: ')[1].split('/')[0].replace(',', ''))
+            solution, hp_lost, attempts, time_taken = await solve_d12_c(
+                recalculating_msg, board_for_solver, currently_on, orbs, hp,
+                random.randint(1, 100_000), hp_is_exact=True
+            )
+            if attempts == -1 or attempts == 0:
+                fail_text = (
+                    f"> The dungeon is __**impossible**__ to win from this state. Please heal or restart."
+                )
+                await recalculating_msg.edit(content=fail_text)
+                return recalculating_msg
+            solution += ['attack']
+            move_preview_n = 3
+            moves_block = f"[{', '.join(solution[:move_preview_n]).upper()}]"
+            solver_message_content = (
+                f"I recalculated the best path from your current state!\n"
+                f"♥ **Hp required:** {hp_lost}\n"
+                f"⏱ **Solution found in:** {time_taken:.2f} seconds\n"
+                f"🔀 **Attempts at solving:** {attempts:,}\n"
+                f"🔢 **Total moves: ** {len(solution):,}\n"
+                f"\n> **Next moves:** {moves_block}"
+            )
+            await recalculating_msg.edit(content=solver_message_content)
+            # Save new state for next turn
+            new_data = D12Data(channel, 0, solution, recalculating_msg, x, y, last_msg_id=event_msg_id)
+            settings.DUNGEON12_HELPERS[channel.id] = new_data
+            return recalculating_msg
 
-    # New run: initial checks and solution search
+    # --- Fresh solver run (first turn or after reset) ---
     currently_on = embed.fields[2].value.split('Currently on ')[1].split('\n')[0]
     orbs = int(embed.fields[2].value.split('**Energy orbs**: ')[1].split('/')[0])
     if (10 - orbs) * 55 >= hp:
@@ -189,10 +168,9 @@ async def handle_dungeon_12(
             f"If you don't have the recommended 901HP of this dungeon, please get 901HP."
         ))
         if dungeon_id in settings.DUNGEON12_HELPERS:
-            del settings.DUNGEON12_HELPERS[dungeon_id]
+            del settings.DUNGEON12_HELPERS[channel.id]
         return answer_msg
 
-    # Initial "please wait" message
     try:
         if is_slash_dungeon(message) if message else False:
             if bot_answer_message:
@@ -209,7 +187,6 @@ async def handle_dungeon_12(
     solution_search_id = random.randint(1, 100_000)
     settings.DUNGEON12_HELPERS[channel.id] = solution_search_id
 
-    # Remove any recalculation warning for this channel (we are about to solve)
     warning_key = f"d12_warn_{channel.id}"
     if hasattr(settings, "DUNGEON12_WARNINGS"):
         warn_msg = settings.DUNGEON12_WARNINGS.get(warning_key)
@@ -221,7 +198,7 @@ async def handle_dungeon_12(
             del settings.DUNGEON12_WARNINGS[warning_key]
 
     solution, hp_lost, attempts, time_taken = await solve_d12_c(
-        asking_message, board, currently_on, orbs, hp,
+        asking_message, board_text, currently_on, orbs, hp,
         solution_search_id, hp_is_exact=hp_is_exact
     )
 
@@ -249,16 +226,13 @@ async def handle_dungeon_12(
 
     time_taken = f"{time_taken:.2f}"
     solution += ['attack']
-    current_to_show = 0  # Always show preview from current move index
-
     move_preview_n = 3
     next_moves = [
-        solution[current_to_show + i].upper()
+        solution[0 + i].upper()
         for i in range(move_preview_n)
-        if (current_to_show + i) < len(solution)
+        if (0 + i) < len(solution)
     ]
     moves_block = f"[{', '.join(next_moves)}]"
-
     solver_message_content = (
         f"I found a solution!\n"
         f"♥ **Hp required:** {hp_lost}\n"
@@ -267,7 +241,6 @@ async def handle_dungeon_12(
         f"🔢 **Total moves: ** {len(solution):,}\n"
         f"\n> **Next moves:** {moves_block}"
     )
-
     try:
         if from_new_message:
             answer_msg = await channel.send(content=solver_message_content)
@@ -278,9 +251,8 @@ async def handle_dungeon_12(
         print(f"[D12] Error final answer send/edit: {exc}")
         answer_msg = await channel.send(content=solver_message_content)
 
-    y, x = get_x_y_d12(board)
-    new_data = D12Data(channel, current_to_show, solution, answer_msg, x, y, hp_lost, last_msg_id=event_msg_id)
-    new_data.is_required_hp_fine = hp_is_exact
+    # Save new state for next turn
+    new_data = D12Data(channel, 0, solution, answer_msg, x, y, last_msg_id=event_msg_id)
     settings.DUNGEON12_HELPERS[channel.id] = new_data
 
     return answer_msg
@@ -463,3 +435,49 @@ If you have higher HP press the buttons below to increase it (faster to find a s
         await interaction.message.edit(
             content=self.get_formatted_search_message(), view=self
         )
+def d12_check_win(board, y, x, orbs):
+    """
+    Returns:
+      - 'ATTACK' if on white_large_square and have 10 orbs,
+      - move direction if a move to a white_large_square would let you win in one,
+      - None otherwise.
+    board: list of tile_id strings ('0', '1', '2', '3', ...)
+    y, x: current coords (0–2)
+    orbs: current orb count (int)
+    """
+    if orbs >= 10 and board[y * 3 + x] == '3':
+        return 'ATTACK'
+    if orbs >= 10:
+        directions = [(-1, 0, 'UP'), (1, 0, 'DOWN'), (0, -1, 'LEFT'), (0, 1, 'RIGHT')]
+        for dy, dx, move in directions:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < 3 and 0 <= nx < 3 and board[ny * 3 + nx] == '3':
+                return move
+    return None
+
+def d12_parse_full_board_and_pos(board_text, currently_on_text):
+    # Returns board (flat list), y, x
+    board_tiles = [x for x in board_text.split(':fire::fire::fire:\n')[1].split(':') if x in (
+        'white_square_button', 'black_large_square', 'black_square_button', 'white_large_square',
+        'ULTRAEDGYarmor', 'D12_ARMOR')]
+    y = x = None
+    out = []
+    tile_ids = {
+        'black_square_button': '0',
+        'white_square_button': '1',
+        'black_large_square': '2',
+        'white_large_square': '3',
+        'D12_ARMOR': '4',
+        'ULTRAEDGYarmor': '4'
+    }
+    cur_id = tile_ids[currently_on_text.replace(':', '')]
+    k = 0
+    for i in range(3):
+        for j in range(3):
+            tid = tile_ids[board_tiles[k]]
+            if tid == '4':
+                y, x = i, j
+                tid = cur_id
+            out.append(tid)
+            k += 1
+    return out, y, x

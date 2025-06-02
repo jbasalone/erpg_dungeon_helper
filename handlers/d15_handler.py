@@ -172,6 +172,7 @@ async def handle_d15_message(
         return
 
     # --- NEW SESSION: Find and send solution ---
+    # --- NEW SESSION: Find and send solution ---
     t0 = time.time()
     key = get_board_name_in_db(board_txt)
     sol = settings.d15_solutions.get(key, []).copy()
@@ -180,13 +181,20 @@ async def handle_d15_message(
     sol.append("attack")
     elapsed = f"{(time.time() - t0):.2f}s"
 
-    text = (
-            f"🧠 **Solution found!** ⏱ **{elapsed}**\n"
-            + ", ".join(m.upper() for m in sol)
-            + f"\n➡️ **Next:** **{sol[0].upper()}**"
-    )
-    if len(sol) > 1:
-        text += "\n**UPCOMING:** " + ", ".join(m.upper() for m in sol[1:])
+    # Only show "SWITCH" as the next move if that's the only valid action on first embed.
+    if sol[0] == "switch":
+        text = (
+            f"➡️ **First move:** **SWITCH**\n"
+            f"_Do this move, then I’ll show you the next steps!_"
+        )
+    else:
+        text = (
+                f"🧠 **Solution found!** ⏱ **{elapsed}**\n"
+                + ", ".join(m.upper() for m in sol)
+                + f"\n➡️ **Next:** **{sol[0].upper()}**"
+        )
+        if len(sol) > 1:
+            text += "\n**UPCOMING:** " + ", ".join(m.upper() for m in sol[1:])
 
     if slash_mode:
         helper_msg = settings.NOTED_MESSAGE.pop(cid)

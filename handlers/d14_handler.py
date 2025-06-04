@@ -2,8 +2,6 @@ import asyncio
 import discord
 import dung_helpers
 import settings
-import re
-import hashlib
 import time
 
 from dung_helpers import (
@@ -37,9 +35,16 @@ def is_d14_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
 
 def map_state_hash(MAP, HP, Y, X):
     s = str(MAP) + f"|{HP}|{Y}|{X}"
+    import hashlib
     return hashlib.sha1(s.encode()).hexdigest()
 
 async def handle_d14_message(message, from_new_message=None):
+    """
+    Main handler for D14 messages. Handles:
+    - Starting move recommendation (pre-move)
+    - Solver step-by-step suggestions (post-move)
+    - Victory handling and plan caching
+    """
     if not is_channel_allowed(message.channel.id, "d14", settings) or not message.embeds:
         return
 
@@ -47,7 +52,6 @@ async def handle_d14_message(message, from_new_message=None):
     embed = message.embeds[0].to_dict()
     is_slash = is_slash_dungeon(message)
 
-    key = (message.channel.id, message.id)
     now = time.monotonic()
     prev = LAST_D14_HANDLED.get(message.channel.id)
     if prev and prev[0] == message.id and now - prev[1] < DEBOUNCE_SECONDS:
@@ -76,7 +80,48 @@ async def handle_d14_message(message, from_new_message=None):
                 await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
         return
 
-    # ----- 2. Parse map, hp, player y/x from the embed -----
+    # ----- 2. Pre-move D14: Suggest starting move -----
+    if is_d14_embed(embed) == 2:
+        try:
+            MAP, HP, Y, X = get_d14_map_data(embed, None, None)
+            tile, move = dung_helpers.get_best_d14_start_move(MAP, X, Y)
+            tile_name = dung_helpers.D14ids_TILES_DICT.get(tile, "Unknown").capitalize()
+            tile_emojis = {
+                dung_helpers.D14ids.BROWN.value: "🟫 Brown",
+                dung_helpers.D14ids.GREEN.value: "🟩 Green",
+                dung_helpers.D14ids.YELLOW.value: "🟨 Yellow",
+                dung_helpers.D14ids.ORANGE.value: "🟧 Orange",
+                dung_helpers.D14ids.BLUE.value: "🟦 Blue",
+                dung_helpers.D14ids.PURPLE.value: "🟪 Purple",
+                dung_helpers.D14ids.RED.value: "🟥 Red",
+            }
+            tile_desc = tile_emojis.get(tile, "⬜ Unknown")
+
+            move_emojis = {
+                "UP": "⬆️ Up",
+                "DOWN": "⬇️ Down",
+                "LEFT": "⬅️ Left",
+                "RIGHT": "➡️ Right",
+            }
+            move_desc = move_emojis.get(move, move.capitalize())
+
+            await safe_send(
+                channel,
+                f"""\
+<:ep_greenleaf:1375735418292801567> **RECOMMENDED STARTING MOVE**
+
+‣ **Move:** {move_desc}
+‣ **To Tile:** {tile_desc}
+
+🕹️ _Move onto a {tile_name} tile to maximize solver success!_
+⚡ *Tip: The solver only calculates after your first move!*"""
+            )
+        except Exception as exc:
+            print(f"[D14 START ERROR] {exc}")
+            await safe_send(channel, f"> Unable to suggest a starting move. ({exc})")
+        return  # Prevent double-processing
+
+    # ----- 3. Parse map, hp, player y/x from the embed (post-move only) -----
     try:
         MAP, HP, Y, X = get_d14_map_data(embed, None, None)
     except Exception as e:
@@ -85,7 +130,7 @@ async def handle_d14_message(message, from_new_message=None):
 
     state_hash = map_state_hash(MAP, HP, Y, X)
 
-    # 3. If dragon is not on the map, clean up for slash & exit
+    # If dragon is not on the map, clean up for slash & exit
     if not any(8 in row for row in MAP):
         LAST_BOT_MSG.pop(channel.id, None)
         LAST_D14_PLAN.pop(channel.id, None)
@@ -98,30 +143,21 @@ async def handle_d14_message(message, from_new_message=None):
 
     if plan:
         cached_hash, solution, tiles, hp_req, elapsed, prev_step = plan
-
-        # Only accept plan if the current state matches the next expected step
-        # Advance the step if user is following the plan
         if cached_hash == state_hash and solution and prev_step < len(solution):
-            # User didn't move, or event spam, just repeat advice
             step = prev_step
             should_resolve = False
         elif (
                 solution and prev_step + 1 < len(solution)
                 and map_state_hash(MAP, HP, Y, X) == map_state_hash(MAP, HP, Y, X)
         ):
-            # Shouldn't really ever match here, just a placeholder for extensibility
             step = prev_step + 1
             should_resolve = False
-        elif solution and prev_step < len(solution) - 1:
-            # Try to see if the user followed the last suggestion:
-            # Move from (prev Y/X) to expected tile
+        elif solution and tiles and prev_step < len(solution) - 1 and prev_step < len(tiles):
             last_tile = tiles[prev_step]
-            # If user's current (Y,X) == last_tile, advance step
             if (Y, X) == last_tile:
                 step = prev_step + 1
                 should_resolve = False
             else:
-                # User deviated! Re-solve from here
                 should_resolve = True
         else:
             should_resolve = True
@@ -150,18 +186,15 @@ async def handle_d14_message(message, from_new_message=None):
             warn = f"[D14] Solution mismatch: len(solution)={len(solution)}, len(tiles)={len(tiles)}"
             print(warn)
             print(f"[D14 DEBUG] MAP={MAP} HP={HP} Y={Y} X={X}")
-            # Cache failed state so we don't keep retrying
             LAST_D14_PLAN[channel.id] = (state_hash, None, None, None, None, 0)
             if is_slash:
-                await safe_edit(msg, content="> ❌ Solution parse error. Please try again or report this.")
+                await safe_edit(msg, content="> ❌ Solution parse error. Please move to another tile or report this.")
             else:
-                await safe_send(channel, "> ❌ Solution parse error. Please try again or report this.")
+                await safe_send(channel, "> ❌ Solution parse error. Please move to another tile or report this.")
             return
-        # Cache solution and set step to 0
         step = 0
         LAST_D14_PLAN[channel.id] = (state_hash, solution, tiles, hp_req, elapsed, step)
     else:
-        # Use cached plan, at correct step
         solution = plan[1]
         tiles = plan[2]
         hp_req = plan[3]
@@ -169,7 +202,6 @@ async def handle_d14_message(message, from_new_message=None):
 
     # Output the next move in the plan (if not at end)
     if not solution or step >= len(solution):
-        # Solution exhausted or error
         if is_slash:
             msg = LAST_BOT_MSG.get(channel.id)
             if msg:
@@ -181,11 +213,11 @@ async def handle_d14_message(message, from_new_message=None):
         return
 
     next_move = solution[step]
-    next_tile = tiles[step]
+    next_tile = tiles[step] if step < len(tiles) else "?"
     turns_left = len(solution) - (step + 1)
+    emoji = MOVE_EMOJI.get(next_move, "❓")
     out_str = (
-        f"> **{MOVE_EMOJI[next_move]} {next_move}** to {next_tile} [{turns_left} turns left]\n"
-        f"> *(HP Required: {hp_req} | Found in: {elapsed}s)*"
+        f"> **{emoji} {next_move}** to {next_tile} [{turns_left} turns left]\n"
     )
 
     if is_slash:
@@ -247,6 +279,7 @@ async def handle_d14_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     return True
 
 def is_d14_victory_embed(embed: dict) -> bool:
+    import re
     for field in embed.get("fields", []):
         name = field.get("name", "").lower()
         value = field.get("value", "").replace(",", "").lower().strip()

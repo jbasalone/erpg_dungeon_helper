@@ -135,16 +135,18 @@ async def handle_dungeon_12(
                 )
                 await recalculating_msg.edit(content=fail_text)
                 return recalculating_msg
+
+            # --- PATCHED SOLUTION OUTPUT BELOW ---
             solution += ['attack']
-            move_preview_n = 3
-            moves_block = f"[{', '.join(solution[:move_preview_n]).upper()}]"
+            move_list = [s.upper() for s in solution]
+            moves_remaining = len(move_list) - 1
+            upcoming_moves = " - ".join(move_list[:6])
+            full_path_one_line = " ".join(move_list)
             solver_message_content = (
-                f"I recalculated the best path from your current state!\n"
-                f"♥ **Hp required:** {hp_lost}\n"
-                f"⏱ **Solution found in:** {time_taken:.2f} seconds\n"
-                f"🔀 **Attempts at solving:** {attempts:,}\n"
-                f"🔢 **Total moves: ** {len(solution):,}\n"
-                f"\n> **Next moves:** {moves_block}"
+                f"Moves remaining: {moves_remaining}\n"
+                f"Upcoming moves: {upcoming_moves} ...\n"
+                f"Full Solution Path: {hp_lost} HP\n"
+                f"```{full_path_one_line}```\n"
             )
             await recalculating_msg.edit(content=solver_message_content)
             # Save new state for next turn
@@ -224,22 +226,17 @@ async def handle_dungeon_12(
         ))
         return asking_message
 
-    time_taken = f"{time_taken:.2f}"
+    # --- PATCHED SOLUTION OUTPUT BELOW ---
     solution += ['attack']
-    move_preview_n = 3
-    next_moves = [
-        solution[0 + i].upper()
-        for i in range(move_preview_n)
-        if (0 + i) < len(solution)
-    ]
-    moves_block = f"[{', '.join(next_moves)}]"
+    move_list = [s.upper() for s in solution]
+    moves_remaining = len(move_list) - 1
+    upcoming_moves = " - ".join(move_list[:6])
+    full_path_one_line = " ".join(move_list)
     solver_message_content = (
-        f"I found a solution!\n"
-        f"♥ **Hp required:** {hp_lost}\n"
-        f"⏱ **Solution found in:** {time_taken} seconds\n"
-        f"🔀 **Attempts at solving:** {attempts:,}\n"
-        f"🔢 **Total moves: ** {len(solution):,}\n"
-        f"\n> **Next moves:** {moves_block}"
+        f"Moves remaining: {moves_remaining}\n"
+        f"Upcoming moves: {upcoming_moves} ...\n"
+        f"Total Path is {hp_lost} HP\n"
+        f"```{full_path_one_line}```\n"
     )
     try:
         if from_new_message:

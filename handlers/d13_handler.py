@@ -41,15 +41,6 @@ async def handle_d13_message(
 ):
     print(f"[D13] handle_d13_message called: from_new_message={from_new_message}, message_id={message.id}, channel_id={message.channel.id}")
 
-    # Dedupe by message id (for messages) or by message+edit (for slash)
-    msg_key = f"{message.channel.id}-{message.id}"
-    if msg_key in settings.ALREADY_HANDLED_D13_MSGS:
-        print(f"[D13] Already handled message: {msg_key}")
-        return
-    settings.ALREADY_HANDLED_D13_MSGS.add(msg_key)
-    if len(settings.ALREADY_HANDLED_D13_MSGS) > 5000:
-        settings.ALREADY_HANDLED_D13_MSGS.clear()
-
     # Channel check
     if not is_channel_allowed(message.channel.id, "d13", settings):
         print("[D13] Channel not allowed.")
@@ -87,12 +78,6 @@ async def handle_d13_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     if payload.channel_id not in settings.DUNGEON13_HELPERS and not should_handle_edit(payload, "d13"):
         return False
 
-    msg_key = f"{payload.channel_id}-{payload.message_id}"
-    if msg_key in settings.ALREADY_HANDLED_D13_MSGS:
-        return False
-    settings.ALREADY_HANDLED_D13_MSGS.add(msg_key)
-    if len(settings.ALREADY_HANDLED_D13_MSGS) > 5000:
-        settings.ALREADY_HANDLED_D13_MSGS.clear()
 
     try:
         channel = await settings.bot.fetch_channel(payload.channel_id)

@@ -22,11 +22,11 @@ from settings import (
     DUNGEON10_HELPERS,
     DUNGEON11_HELPERS,
     DUNGEON12_HELPERS,
-    DUNGEON13_HELPERS,
     DUNGEON14_HELPERS,
     DUNGEON15_HELPERS,
     DUNGEON15_2_HELPERS,
 )
+
 
 
 EPIC_RPG_ID = 555955826880413696
@@ -34,6 +34,7 @@ BETA_BOT_ID = 949425955653439509
 D14_LAST_SENT_ACTION = {}
 D14_LAST_DISPLAY = {} # channel_id: last_displayed_content
 D14_PREV_MAP = {}
+
 
 RANDOM_EMOJIS = "🎈🎆🎇🧨✨🎉🎊🎃🎄🎋🎍🎎🎏🎐🎑🧧🎀🎁🎗🎞🎟🎫🎠🎡🎡🛒🧶🧵🎨🖼🎭🎪🎢👓🕶🦺🥽🥼🧥👔👕❤🧡💛💚💙💜" \
                 "🤎🖤🤍❣💕💞💓💗💖💘💝💟💌🍕🍔🍟🌭🍿🧂🥓🥚🥯🥨🥐🍞🧈🥞🧇🍳🥖🧀🥗🥙🥪🌮🌯🥫🍖🍗🥩🍠🥟🥠🥡🍱🍤" \
@@ -46,14 +47,6 @@ def is_channel_allowed(channel_id, *a, **kw):
     return True
 
 
-class D13HelperData:
-    def __init__(self):
-        self.turn_number = 1               # Current turn number for this channel’s D13 run
-        self.last_answered_key = None      # (room, dragon_room, question) — for deduplication
-        self.message = None                # The last sent answer message (needed for edits/slash)
-        self.start_room = None             # The very first room number (1, 2, or 3)
-
-
 def log_unmatched_embed(embed_dict):
     try:
         import json
@@ -62,192 +55,7 @@ def log_unmatched_embed(embed_dict):
     except Exception:
         pass
 
-D13_QUESTIONS = [
-    {
-        'question': "Why does the wooden log tiers goes '...epic, super, mega, hyper...' while enchantments are '...mega, epic, hyper...'?",
-        'correct': ("yes", 0), 'not_so_wrong': ("idk lol", 1), 'wrong': ("that's how the developer planned it", 2)},
 
-    {'question': "`arcsin[4!+2*cos(0.02)/[(e^10)-log(4)^(π*π-111)]+10`",
-     'correct': ("-5.3175", 0), 'not_so_wrong': ("-0.26399", 1), 'wrong': ("63.2217", 2)},
-
-    {'question': "hi",
-     'correct': ("hi >w<!!", 0), 'not_so_wrong': ("hi owo", 1), 'wrong': ("hi", 2)},
-
-    {'question': "How was the 'duel' command used to be called?",
-     'correct': ("pvp", 0), 'not_so_wrong': ("fight", 1), 'wrong': ("there was not a command like that", 2)},
-
-    {'question': "What's the maximum level?",
-     'correct': ("2147483647", 0), 'not_so_wrong': ("2389472895789437", 1), 'wrong': ("200", 2)},
-
-    {'question': "What number am i thinking on right now?"},
-
-    {'question': "Where can you get an epic fish?",
-     'correct': ("Area 2+", 0), 'not_so_wrong': ("The river", 1), 'wrong': ("Area 1+", 2)},
-
-    {'question': "How many coins do you start with?",
-     'correct': ("250", 0), 'not_so_wrong': ("500", 1), 'wrong': ("0", 2)},
-
-    {'question': "How many types of trainings are there?",
-     'correct': ("5", 0), 'not_so_wrong': ("4", 1), 'wrong': ("1", 2)},
-
-    {'question': "How many is the cap in time travels?",
-     'correct': ("like very high", 0), 'not_so_wrong': ("10", 1), 'wrong': ("none", 2)},
-
-    {'question': 'How many arena cookies do you have right now?'},
-
-    {'question': "What's the minimum level required to craft an electronical armor?",
-     'correct': ("20", 0), 'not_so_wrong': ("22", 1), 'wrong': ("24", 2)},
-
-    {'question': "How many vehicles are there in EPIC RPG?",
-     'correct': ("7", 0), 'not_so_wrong': ("4", 1), 'wrong': ("What? there's no vehicles", 2)},
-
-    {'question': "Is this the best solo dungeon?",
-     'correct': ("yes", 0), 'not_so_wrong': ("no, dungeon #12 was the best", 1),
-     'wrong': ("no, dungeon #11 was the best", 2)},
-
-    {'question': "How many miliseconds have passed since you started this dungeon?"}]
-
-# Room path table from guide: (start_room, current_room) => answer_type
-# Map of walkthrough steps from the image
-D13_WALKTHROUGH = {
-    1: [
-        (1, "not_so_wrong"),
-        (8, "not_so_wrong"),
-        (15, "wrong"),
-        (14, "wrong"),
-        (13, "wrong"),
-        (12, "not_so_wrong"),
-        (11, "not_so_wrong"),
-        (10, "not_so_wrong"),
-        (9, "not_so_wrong"),
-        (7, "correct"),
-        (6, "correct"),
-        (2, "attack"),
-    ],
-    2: [
-        (2, "not_so_wrong"),
-        (9, "not_so_wrong"),
-        (15, "wrong"),
-        (14, "wrong"),
-        (13, "wrong"),
-        (12, "not_so_wrong"),
-        (10, "not_so_wrong"),
-        (8, "correct"),
-        (4, "correct"),
-        (2, "attack"),
-    ],
-    3: [
-        (3, "not_so_wrong"),
-        (10, "not_so_wrong"),
-        (9, "not_so_wrong"),
-        (15, "wrong"),
-        (14, "wrong"),
-        (13, "wrong"),
-        (12, "not_so_wrong"),
-        (11, "not_so_wrong"),
-        (8, "correct"),
-        (4, "correct"),
-        (2, "attack"),
-    ]
-}
-
-def d13_simulate_movement(room, dragon_dist, answer_type):
-    if answer_type == 'correct':
-        if room % 2 == 0:
-            return room - 1, abs(dragon_dist - 1)
-        else:
-            return room + 2, abs(dragon_dist + 2)
-    elif answer_type == 'not_so_wrong':
-        if room < 9:
-            return room + 4, abs(dragon_dist + 4)
-        else:
-            return room - 1, abs(dragon_dist - 1)
-    elif answer_type == 'wrong':
-        if dragon_dist >= 8:
-            return room - 2, abs(dragon_dist - 2)
-        elif dragon_dist <= 3:
-            return room + 5, abs(dragon_dist + 5)
-        else:
-            return room, dragon_dist  # no movement
-    else:
-        return room, dragon_dist
-
-def choose_best_d13_answer(room, dragon_dist):
-    best_type = 'correct'
-    best_new_dist = float('inf')
-    for ans_type in ('correct', 'not_so_wrong', 'wrong'):
-        _, new_dist = d13_simulate_movement(room, dragon_dist, ans_type)
-        if new_dist < best_new_dist:
-            best_type = ans_type
-            best_new_dist = new_dist
-    return best_type
-
-def pick_d13_answer(answer_type, question, left, center, right):
-    """
-    Use your existing D13 answer logic to get the answer by type. Handles 'attack'.
-    """
-    if answer_type == "attack":
-        return "ATTACK"
-    # Use your robust answer picker
-    return get_d13_answer(answer_type, question, left, center, right)
-
-def get_answer(answer_type, question, left, center, right):
-    import re
-    def norm(s):
-        return re.sub(r"^[*_\s]+|[*_\s]+$", "", str(s).strip().lower())
-    q = norm(question)
-    left_n = norm(left)
-    center_n = norm(center)
-    right_n = norm(right)
-
-    # Recognize numeric questions
-    numeric_questions = [
-        "how many miliseconds have passed since you started this dungeon?",
-        "how many arena cookies do you have right now?",
-        "what number am i thinking on right now?"
-    ]
-    if q in numeric_questions:
-        try:
-            nums = sorted([int(left_n), int(center_n), int(right_n)])
-            # Always pick the median value as the "not so wrong" answer
-            median_value = str(nums[1])
-            if left_n == median_value:
-                return left
-            elif center_n == median_value:
-                return center
-            elif right_n == median_value:
-                return right
-            else:
-                # fallback to center
-                return center
-        except Exception:
-            # fallback to center in case of parse error
-            return center
-
-    # Normal text questions (use D13_QUESTIONS)
-    for item in D13_QUESTIONS:
-        if norm(item.get('question', '')) == q:
-            a_text, _ = item.get(answer_type, (None, None))
-            if a_text:
-                a_text_n = norm(a_text)
-                if left_n == a_text_n:
-                    return left
-                if center_n == a_text_n:
-                    return center
-                if right_n == a_text_n:
-                    return right
-                print(f"[D13] Expected answer not found! Q: {q} ({question}) | A: {a_text_n} | Choices: {left_n}, {center_n}, {right_n}")
-    print(f"[D13] Unmatched question: {repr(question)} | Normalized: {repr(q)} | Choices: {left}, {center}, {right}")
-    return left  # fallback
-
-def return_move(answer, left, center, right):
-    if answer == left:
-        return f"⬅ LEFT ({left})"
-    if answer == center:
-        return f"⬆ CENTER ({center})"
-    if answer == right:
-        return f"➡ RIGHT ({right})"
-    return f"⬅ LEFT ({left})"
 
 
 MOVE_EMOJI = {'LEFT': "⬅", "RIGHT": "➡", "UP": "⬆", "DOWN": "⬇", "ATTACK": "⚔", "PASS TURN": "🤚🏽"}
@@ -657,151 +465,6 @@ def is_move_valid(y, x, move):
     if move == "RIGHT":
         return x < 7
     return False
-
-def get_d13_answer(answer_type, question, left, center, right):
-    import re
-    def norm(s):
-        return re.sub(r"^[*_\s]+|[*_\s]+$", "", str(s).strip().lower())
-    q = norm(question)
-    left_n = norm(left)
-    center_n = norm(center)
-    right_n = norm(right)
-
-    # Recognize numeric questions for D13
-    numeric_questions = [
-        "how many miliseconds have passed since you started this dungeon?",
-        "how many arena cookies do you have right now?",
-        "what number am i thinking on right now?",
-    ]
-    if q in numeric_questions:
-        try:
-            nums = sorted([int(left_n), int(center_n), int(right_n)])
-            median_value = str(nums[1])
-            if left_n == median_value:
-                return left
-            if center_n == median_value:
-                return center
-            if right_n == median_value:
-                return right
-            # fallback if for some reason not matched as str
-            return center
-        except Exception:
-            return center  # fallback if can't parse
-
-    # Standard text question lookup (assuming you have D13_QUESTIONS somewhere)
-    for item in D13_QUESTIONS:
-        if norm(item.get('question', '')) == q:
-            a_text, _ = item.get(answer_type, (None, None))
-            if a_text:
-                a_text_n = norm(a_text)
-                if left_n == a_text_n:
-                    return left
-                if center_n == a_text_n:
-                    return center
-                if right_n == a_text_n:
-                    return right
-                print(f"[D13] Expected answer not found! Q: {q} ({question}) | A: {a_text_n} | Choices: {left_n}, {center_n}, {right_n}")
-    print(f"[D13] Unmatched question: '{question}' | Normalized: '{q}' | Choices: {left}, {center}, {right}")
-    return left  # fallback if nothing matches
-
-async def d13_helper(
-        embed,
-        channel,
-        from_message,
-        bot_answer_message=None,
-        trigger_message=None,
-        helpers=None,
-        message_based=False
-):
-    if helpers is None:
-        helpers = DUNGEON13_HELPERS
-
-    # Step 1: Combat check (instant ATTACK)
-    combat_text = next(
-        (f.value for f in embed.fields if "is in the same room as you" in f.value.lower()), None
-    )
-    if combat_text:
-        data = helpers.get(channel.id)
-        if data:
-            content = f"> **{data.turn_number}. ⚔ ATTACK**"
-            if is_slash_dungeon(trigger_message):
-                await bot_answer_message.edit(content=content)
-            else:
-                data.message = await channel.send(content)
-            del helpers[channel.id]
-        else:
-            await channel.send("> **1. ⚔ ATTACK**")
-        return
-
-    data = helpers.get(channel.id)
-    if not isinstance(data, D13HelperData):
-        data = D13HelperData()
-        helpers[channel.id] = data
-
-    # Defensive property fix
-    if not hasattr(data, 'turn_number'): data.turn_number = 1
-    if not hasattr(data, 'last_answered_key'): data.last_answered_key = None
-    if not hasattr(data, 'start_room'): data.start_room = None
-
-    # Field extraction
-    try:
-        qa_field = embed.fields[0]
-        choices_field = embed.fields[1]
-        stats_field = embed.fields[2]
-    except IndexError:
-        return
-
-    import re
-    location_text = stats_field.value
-    room_match = re.search(r"\*\*ROOM:\*\* `(\d+)`", location_text)
-    dragon_match = re.search(r"\*\*THE ULTRA-OMEGA DRAGON\*\* is (\d+) rooms away", location_text, re.IGNORECASE)
-    if not room_match or not dragon_match:
-        return
-    room_number = int(room_match.group(1))
-    dragon_room = int(dragon_match.group(1))
-
-    qa_text = qa_field.value
-    q_match = re.search(r"__\*\*QUESTION:\*\*__\s*(.*?)\n:door:", qa_text, re.S)
-    if not q_match:
-        return
-    question = q_match.group(1).strip()
-    left_ans = re.search(r"\*\*Left:\*\*\s*(.*)", qa_text)
-    center_ans = re.search(r"\*\*Center:\*\*\s*(.*)", qa_text)
-    right_ans = re.search(r"\*\*Right:\*\*\s*(.*)", qa_text)
-    if not (left_ans and center_ans and right_ans):
-        return
-    left_answer = left_ans.group(1).strip()
-    center_answer = center_ans.group(1).strip()
-    right_answer = right_ans.group(1).strip()
-
-    dedup_key = (room_number, dragon_room, question)
-    if data.last_answered_key == dedup_key:
-        return
-
-    if data.start_room is None:
-        if room_number in (1, 2, 3):
-            data.start_room = room_number
-        else:
-            data.start_room = 1
-
-    answer_type = choose_best_d13_answer(room_number, dragon_room)
-    move = pick_d13_answer(answer_type, question, left_answer, center_answer, right_answer)
-
-    if move == "ATTACK":
-        content = f"> **{data.turn_number}. ⚔ ATTACK**"
-    else:
-        content = f"> **{data.turn_number}. {return_move(move, left_answer, center_answer, right_answer)}**"
-
-    if is_slash_dungeon(trigger_message):
-        await bot_answer_message.edit(content=content)
-    else:
-        data.message = await channel.send(content)
-
-    data.turn_number += 1
-    data.last_answered_key = dedup_key
-    helpers[channel.id] = data
-
-    return data.message
 
 def apply_d14_move(map_matrix, y, x, hp, move):
     """
@@ -1729,9 +1392,6 @@ def process_D15_2_move(map, coolness, dizzyness):
                     break
 
     return MOVE
-    # for outcome in outcomes:
-    #     print(outcome, outcomes[outcome])
-    # print("===============================")
 
 
 
@@ -1788,38 +1448,6 @@ def is_d15_2_embed(author_id, embed):
         and ('fields' in embed and ('THE TIME DRAGON | turn' in embed['fields'][0]['name']
                                     or '<:TIMEdragonphase2:787450872594563082>THE TIME DRAGON' in embed['fields'][0][
                                         'name']))
-
-def is_d13_embed(author_id, embed_dict, force=False):
-    try:
-        if not force and author_id not in (settings.EPIC_RPG_ID, settings.BETA_BOT_ID, settings.BOT_ID):
-            print(f"[D13 SKIP] Author ID {author_id} not recognized")
-            return False
-
-        # Check for author and title pattern
-        author_name = embed_dict.get('author', {}).get('name', '').lower()
-        title_text = embed_dict.get('title', '').lower()
-
-        author_match = ' — dungeon' in author_name
-        title_match = 'ultra-omega dragon' in title_text or 'you have encountered the ultra-omega dragon' in title_text
-
-        # Check for field clues
-        value_match = False
-        for field in embed_dict.get('fields', []):
-            field_name = field.get('name', '').lower()
-            field_value = field.get('value', '').lower()
-
-            if 'question:' in field_name or 'combat log' in field_name:
-                value_match = True
-                break
-            if 'will move you 1 room closer' in field_value or 'is in the same room as you' in field_value:
-                value_match = True
-                break
-
-        return (author_match or title_match) and value_match
-
-    except Exception as e:
-        print(f"[D13 ERROR] {e}")
-        return False
 
 
 def is_d14_embed(embed_dict):

@@ -80,7 +80,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
                 await safe_edit(last_bot, content="> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
             else:
                 await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
-            return
+        return
 
     # 3. Pre-move: recommend first step
     if is_d14_embed(embed) == 2:
@@ -140,19 +140,30 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         cached_hash, solution, tiles, hp_req, elapsed, prev_step = plan
 
         if state_hash == cached_hash:
-            # Still on same board, repeat step
+            # Board is unchanged (maybe just HP changed or duplicate event)
             step = prev_step
             should_resolve = False
-        elif prev_step + 1 < len(solution):
-            # Probably did the next move
+        elif prev_step < len(tiles) and (Y, X) == tiles[prev_step]:
+            # Player followed the plan; advance one step
             step = prev_step + 1
             should_resolve = False
+        elif (Y, X) in tiles:
+            # User did a move that matches a later plan step (maybe missed messages, fast moves, etc)
+            step = tiles.index((Y, X)) + 1
+            should_resolve = False
         else:
-            # Moved more than one, or state desync
+            # User did an unexpected move! Plan is now invalid for this board state.
             should_resolve = True
+            if is_slash:
+                last_msg = LAST_BOT_MSG.get(channel.id)
+                if last_msg:
+                    await safe_edit(last_msg, content="> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
+                else:
+                    await safe_send(channel, "> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
 
         if not should_resolve:
             save_plan(channel.id, (state_hash, solution, tiles, hp_req, elapsed, step))
+
     if should_resolve:
         # 6. “Solving...” status
         if is_slash:
@@ -197,11 +208,11 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         if is_slash:
             last_msg = LAST_BOT_MSG.get(channel.id)
             if last_msg:
-                await safe_edit(last_msg, content="> 🟩 All moves complete, waiting for victory!")
+                await safe_edit(last_msg, content="> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
             else:
-                await safe_send(channel, "> 🟩 All moves complete, waiting for victory!")
+                await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
         else:
-            await safe_send(channel, "> 🟩 All moves complete, waiting for victory!")
+            await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
         return
 
     move = solution[step]

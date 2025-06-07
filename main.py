@@ -70,13 +70,14 @@ def is_channel_allowed(channel_id, tag):
     #print(f"[is_channel_allowed] Lookup: '{key}' in allowed_channels: {key in settings.allowed_channels}")
     return settings.ALLOW_HELPERS_IN_ALL_CHANNELS or key in settings.allowed_channels
 
-async def note_dungeon_confirmation(channel: discord.TextChannel, tag: Union[int,float]):
+async def note_dungeon_confirmation(channel: discord.TextChannel, tag: Union[int, float]):
     # Only send one notice per entry
     if channel.id in settings.NOTED_MESSAGE:
         return
+    if not is_channel_allowed(channel.id, tag):
+        return
     msg = await safe_send(channel, f"> 📘 Noted: Dungeon `{tag}` confirmed. Awaiting board…")
     settings.NOTED_MESSAGE[channel.id] = msg
-
 
 async def detect_confirmation_buttons(payload) -> bool:
     # Catch the "Are you sure you want to enter..." button payload

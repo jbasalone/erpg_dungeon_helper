@@ -170,10 +170,14 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
 
     # DRAGON PHASE: Only send one attack per message per channel!
     if any("is in the same room as you" in (f.value.lower()) for f in embed.fields):
+        if is_d13_dragon_dead(embed):
+            return
+        # If we've already sent attack for this channel/message, skip
         last_attack_msg = D13_ATTACK_SENT.get(message.channel.id)
         if last_attack_msg == message.id:
             print(f"[D13] Already sent attack for message {message.id} in channel {message.channel.id}")
             return
+        # Set the flag to this message
         D13_ATTACK_SENT[message.channel.id] = message.id
         data = D13_HELPERS.get(message.channel.id, D13HelperData())
         content = f"> **{data.turn_number}. ⚔ ATTACK**"
@@ -181,7 +185,10 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
             await bot_answer_message.edit(content=content)
         else:
             await message.channel.send(content)
+        # Immediately clean up ALL state for this channel after ATTACK
         D13_HELPERS.pop(message.channel.id, None)
+        D13_ATTACK_SENT.pop(message.channel.id, None)
+        # (Optional but good: Remove all msg-answered for this channel)
         D13_MSG_ANSWERED = {x for x in D13_MSG_ANSWERED if x[0] != message.channel.id}
         return
 
@@ -252,6 +259,20 @@ def get_embed_hash(embed):
         h.update((f.name or "").encode())
         h.update((f.value or "").encode())
     return h.hexdigest()
+
+def is_d13_dragon_dead(embed):
+    lower_title = (getattr(embed, "title", "") or "").lower()
+    lower_fields = " ".join([(getattr(f, "name", "") + " " + getattr(f, "value", "")) for f in getattr(embed, "fields", [])]).lower()
+    lower_footer = (getattr(embed, "footer", {}).get("text", "") or "").lower() if getattr(embed, "footer", None) else ""
+    dragon_dead_phrases = [
+        "has killed the ultra-omega dragon",
+        "the ultra-omega dragon is dead",
+        "im ded",
+        "💜0/lmao",
+        "unlocked the next area"
+    ]
+    test_text = lower_title + " " + lower_fields + " " + lower_footer
+    return any(kw in test_text for kw in dragon_dead_phrases)
 
 async def handle_d13_edit(payload, bot, bot_answer_message=None, is_slash=False):
     now = asyncio.get_event_loop().time()

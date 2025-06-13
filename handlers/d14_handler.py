@@ -18,12 +18,12 @@ VICTORY_SENT = set()
 LAST_BOT_MSG = {}
 LAST_D14_HANDLED = {} # channel_id: (msg_id, when)
 DEBOUNCE_SECONDS = 2
-LAST_D14_PLAN: Dict[int, Tuple[str, list, list, int, float, int]] = {}
-
-def save_plan(key: int, plan: Tuple[str, list, list, int, float, int]) -> None:
+LAST_D14_PLAN: Dict[int, Tuple[list, list, int, float, int, int, int]] = {}
+#         (solution, tiles_path, hp_req, elapsed, step, Y, X)
+def save_plan(key: int, plan):
     LAST_D14_PLAN[key] = plan
 
-def load_plan(key: int) -> Optional[Tuple[str, list, list, int, float, int]]:
+def load_plan(key: int):
     return LAST_D14_PLAN.get(key)
 
 def is_slash_dungeon(message):
@@ -48,7 +48,8 @@ def map_state_hash(MAP, HP, Y, X):
 
 async def handle_d14_message(message: discord.Message, from_new_message: bool = None):
     """
-    Main handler for D14 messages. Handles:
+    Main handler for D14 messages.
+    Handles:
     - Starting move recommendation (pre-move)
     - Solver step-by-step suggestions (post-move)
     - Victory handling and plan caching
@@ -123,8 +124,6 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         print(f"[D14] Map parse error: {e}")
         return
 
-    state_hash = map_state_hash(MAP, HP, Y, X)
-
     # if dragon gone, clean up and exit
     if not any(8 in row for row in MAP):
         LAST_BOT_MSG.pop(channel.id, None)
@@ -137,23 +136,41 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
     step = 0
 
     if plan:
-        cached_hash, solution, tiles, hp_req, elapsed, prev_step = plan
+        solution, tiles_path, hp_req, elapsed, prev_step, prev_Y, prev_X = plan
+        print(f"[D14 PLAN] step={prev_step}, pos={(Y,X)}, prev={(prev_Y,prev_X)}")
 
-        if state_hash == cached_hash:
-            # Board is unchanged (maybe just HP changed or duplicate event)
-            step = prev_step
-            should_resolve = False
-        elif prev_step < len(tiles) and (Y, X) == tiles[prev_step]:
-            # Player followed the plan; advance one step
+        # 5a. User moved to expected next tile in plan
+        if prev_step < len(tiles_path) and (Y, X) == tiles_path[prev_step]:
             step = prev_step + 1
             should_resolve = False
-        elif (Y, X) in tiles:
-            # User did a move that matches a later plan step (maybe missed messages, fast moves, etc)
-            step = tiles.index((Y, X)) + 1
+            print(f"  > Player moved to expected next tile in plan, step {step}")
+
+        # 5b. Player did not move, but next step is ATTACK or PASS TURN
+        elif (
+                prev_step < len(solution)
+                and solution[prev_step] in ("ATTACK", "PASS TURN")
+                and (Y, X) == (prev_Y, prev_X)
+        ):
+            step = prev_step + 1
             should_resolve = False
+            print(f"  > Player executed {solution[prev_step]} at tile {tiles_path[prev_step]} (no movement) -> step {step}")
+
+        # 5c. Special: just followed plan to first tile
+        elif prev_step == 0 and (Y, X) == tiles_path[0]:
+            step = 1
+            should_resolve = False
+            print(f"  > Player followed plan to first tile {tiles_path[0]} -> step {step}")
+
+        # 5d. User jumped ahead: use furthest matching tile forward (never back)
+        elif (Y, X) in tiles_path[prev_step+1:]:
+            idx = max(i for i, pos in enumerate(tiles_path[prev_step+1:], start=prev_step+1) if pos == (Y, X))
+            step = idx + 1
+            should_resolve = False
+            print(f"  > Player jumped ahead to tile {tiles_path[idx]}, jumping to step {step}")
+
         else:
-            # User did an unexpected move! Plan is now invalid for this board state.
             should_resolve = True
+            print(f"  > Move not found in plan, replanning")
             if is_slash:
                 last_msg = LAST_BOT_MSG.get(channel.id)
                 if last_msg:
@@ -162,7 +179,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
                     await safe_send(channel, "> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
 
         if not should_resolve:
-            save_plan(channel.id, (state_hash, solution, tiles, hp_req, elapsed, step))
+            save_plan(channel.id, (solution, tiles_path, hp_req, elapsed, step, Y, X))
 
     if should_resolve:
         # 6. “Solving...” status
@@ -186,22 +203,13 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
             MAP, Y, X, HP,
             yellow_poison=0,
             orange_poison=0,
-            inital_message=msg   # <-- Must match exactly as in dung_helpers!
+            inital_message=msg
         )
-
-        if not solution or not tiles or len(solution) != len(tiles):
-            print(f"[D14] Solution mismatch: {len(solution)=}, {len(tiles)=}")
-            LAST_D14_PLAN.pop(channel.id, None)
-            if is_slash:
-                await safe_edit(msg, content="> ❌ Solution parse error. Please move to another tile or report this.")
-            else:
-                await safe_send(channel, "> ❌ Solution parse error. Please move to another tile or report this.")
-            return
-
+        tiles_path = path_from_moves(Y, X, solution)
         step = 0
-        save_plan(channel.id, (state_hash, solution, tiles, hp_req, elapsed, step))
+        save_plan(channel.id, (solution, tiles_path, hp_req, elapsed, step, Y, X))
     else:
-        solution, tiles, hp_req, elapsed = plan[1:5]
+        solution, tiles_path, hp_req, elapsed = plan[0:4]
 
     # 8. Output next move
     if not solution or step >= len(solution):
@@ -216,10 +224,12 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         return
 
     move = solution[step]
-    tile = tiles[step]
+    tile_yx = tiles_path[step]
     turns_left = len(solution) - (step + 1)
     emoji = MOVE_EMOJI.get(move, "❓")
-    out = f"> **{emoji} {move}** to {tile} [{turns_left} turns left]\n"
+    color_val = MAP[tile_yx[0]][tile_yx[1]]
+    color_name = dung_helpers.D14ids_TILES_DICT.get(color_val, str(color_val)).capitalize()
+    out = f"> **{emoji} {move}** to {color_name} {tile_yx} [{turns_left} turns left]\n"
 
     if is_slash:
         last_msg = LAST_BOT_MSG.get(channel.id)
@@ -232,6 +242,23 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         await safe_send(channel, out)
 
 # --- helpers (unchanged) ---
+
+def path_from_moves(start_y, start_x, moves):
+    y, x = start_y, start_x
+    path = []
+    for move in moves:
+        if move == "UP":
+            y -= 1
+        elif move == "DOWN":
+            y += 1
+        elif move == "LEFT":
+            x -= 1
+        elif move == "RIGHT":
+            x += 1
+        # skip ATTACK and PASS TURN as they don't move player
+        path.append((y, x))
+    return path
+
 async def safe_send(channel, *args, **kwargs):
     try:
         return await channel.send(*args, **kwargs)

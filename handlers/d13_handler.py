@@ -8,6 +8,9 @@ D13_HELPERS = {}
 D13_MSG_ANSWERED = set()
 D13_ATTACK_SENT = {}
 
+import time
+D13_RECENT_RESPONDED = {}
+
 D13_QUESTIONS = [
     {
         'question': "Why does the wooden log tiers goes '...epic, super, mega, hyper...' while enchantments are '...mega, epic, hyper...'",
@@ -57,6 +60,19 @@ class D13HelperData:
         self.previous_room_number = 0
         self.previous_dragon_room = 0
 
+def should_respond_to_message(channel_id, message_id):
+    now = time.time()
+    key = (channel_id, message_id)
+    expire = 3  # seconds
+    # Remove old keys
+    to_del = [k for k,v in D13_RECENT_RESPONDED.items() if now-v > expire]
+    for k in to_del:
+        del D13_RECENT_RESPONDED[k]
+    if key in D13_RECENT_RESPONDED:
+        return False
+    D13_RECENT_RESPONDED[key] = now
+    return True
+
 def normalize(text):
     return re.sub(r"^[*_\s]+|[*_\s]+$", "", str(text).strip().lower())
 
@@ -88,16 +104,13 @@ def get_answer(_type: str, question: str, left, center, right):
     for possibe in D13_QUESTIONS:
         if possibe['question'] == question:
             return possibe[_type][0]
-
     return ''
 
 def return_move(answer: str, left, center):
     return '⬅ LEFT' if answer == left else '⬆ CENTER' if answer == center else '➡ RIGHT'
 
 async def get_d13_action(data: D13HelperData, room, dragon_room, prev_room, prev_dragon_room, question, left, center, right):
-    # Recovery and phase logic
     messed_up_text = ''
-    # Messed up phase, reset
     if data.last_step == 2 and dragon_room > prev_dragon_room:
         data.last_step = 1
         messed_up_text = "(starting from step 1 again because you messed up)"
@@ -130,6 +143,7 @@ async def get_d13_action(data: D13HelperData, room, dragon_room, prev_room, prev
         answer = get_answer('correct', question, left, center, right)
         return return_move(answer, left, center) + messed_up_text
 
+
 def parse_d13_embed(embed: discord.Embed):
     fields = embed.fields
     qa_val = fields[0].value
@@ -156,6 +170,7 @@ def move_string(move, left, center, right):
 
 async def handle_d13_message(message, from_new_message=True, bot_answer_message=None, is_slash=None):
     global D13_HELPERS, D13_MSG_ANSWERED, D13_ATTACK_SENT
+
     answer_key = (message.channel.id, message.id)
     if answer_key in D13_MSG_ANSWERED:
         return
@@ -172,12 +187,10 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
     if any("is in the same room as you" in (f.value.lower()) for f in embed.fields):
         if is_d13_dragon_dead(embed):
             return
-        # If we've already sent attack for this channel/message, skip
         last_attack_msg = D13_ATTACK_SENT.get(message.channel.id)
         if last_attack_msg == message.id:
             print(f"[D13] Already sent attack for message {message.id} in channel {message.channel.id}")
             return
-        # Set the flag to this message
         D13_ATTACK_SENT[message.channel.id] = message.id
         data = D13_HELPERS.get(message.channel.id, D13HelperData())
         content = f"> **{data.turn_number}. ⚔ ATTACK**"
@@ -188,8 +201,6 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
         # Immediately clean up ALL state for this channel after ATTACK
         D13_HELPERS.pop(message.channel.id, None)
         D13_ATTACK_SENT.pop(message.channel.id, None)
-        # (Optional but good: Remove all msg-answered for this channel)
-        D13_MSG_ANSWERED = {x for x in D13_MSG_ANSWERED if x[0] != message.channel.id}
         return
 
     # Parse embed details
@@ -214,7 +225,6 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
         data.previous_room_number = room
         data.previous_dragon_room = dragon_room
         D13_HELPERS[message.channel.id] = data
-        # Also clear attack flag for fresh runs
         D13_ATTACK_SENT.pop(message.channel.id, None)
     else:
         data = D13_HELPERS[message.channel.id]
@@ -262,8 +272,11 @@ def get_embed_hash(embed):
 
 def is_d13_dragon_dead(embed):
     lower_title = (getattr(embed, "title", "") or "").lower()
-    lower_fields = " ".join([(getattr(f, "name", "") + " " + getattr(f, "value", "")) for f in getattr(embed, "fields", [])]).lower()
-    lower_footer = (getattr(embed, "footer", {}).get("text", "") or "").lower() if getattr(embed, "footer", None) else ""
+    lower_fields = " ".join([
+        (getattr(f, "name", "") + " " + getattr(f, "value", ""))
+        for f in getattr(embed, "fields", [])
+    ]).lower()
+    lower_footer = (getattr(embed.footer, "text", "") or "").lower() if getattr(embed, "footer", None) is not None else ""
     dragon_dead_phrases = [
         "has killed the ultra-omega dragon",
         "the ultra-omega dragon is dead",

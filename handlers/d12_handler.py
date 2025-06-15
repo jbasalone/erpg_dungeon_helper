@@ -61,32 +61,39 @@ async def handle_d12_message(message: discord.Message, from_new_message: bool):
         settings.DUNGEON12_LAST_ANSWER_MSG[message.channel.id] = new_answer
 
 async def handle_d12_edit(payload: discord.RawMessageUpdateEvent) -> bool:
-    # Step 1: Early out if not a D12 edit
     if not is_d12_embed_edit(payload):
         return False
     if int(payload.data.get("author", {}).get("id", 0)) == settings.BOT_ID:
         return False
-    # Step 2: Check should_handle_edit (your channel/session/active check)
     if not should_handle_edit(payload, "d12"):
         return False
-    # Step 3: DEDUPE/THROTTLE before any network call!
-    if not hasattr(settings, "D12_EDIT_RECENT"):
-        settings.D12_EDIT_RECENT = {}
+
+    # DEDUPE/THROTTLE
     key = (payload.channel_id, payload.message_id)
     now = time.time()
-    last_time = settings.D12_EDIT_RECENT.get(key, 0)
-    # If called less than 1.5s ago for this msg, skip (throttle)
+    last_time = getattr(settings, "D12_EDIT_RECENT", {}).get(key, 0)
     if now - last_time < 1.5:
         return False
+    if not hasattr(settings, "D12_EDIT_RECENT"):
+        settings.D12_EDIT_RECENT = {}
     settings.D12_EDIT_RECENT[key] = now
-    # Optional: prune to avoid bloat
     if len(settings.D12_EDIT_RECENT) > 10000:
         settings.D12_EDIT_RECENT.clear()
-    # Step 4: Now it is safe to fetch
+
+    # Use only payload data!
     try:
         channel = await settings.bot.fetch_channel(payload.channel_id)
-        message = await channel.fetch_message(payload.message_id)
-        await handle_d12_message(message, from_new_message=False)
+        embeds = payload.data.get("embeds", [])
+        if not embeds:
+            return False
+        embed = discord.Embed.from_dict(embeds[0])
+        await dung12.handle_dungeon_12(
+            embed=embed,
+            channel=channel,
+            from_new_message=False,
+            bot_answer_message=None,
+            message=None  # <-- No full message fetched!
+        )
         return True
     except Exception as exc:
         print(f"[D12] Error in handle_d12_edit: {exc}")

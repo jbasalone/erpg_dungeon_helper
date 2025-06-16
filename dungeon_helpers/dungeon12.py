@@ -89,12 +89,6 @@ async def handle_dungeon_12(
                 print(f"[D12] Helper state exists but no message. Resetting.")
                 del settings.DUNGEON12_HELPERS[dungeon_id]
                 return
-            try:
-                await channel.fetch_message(msg.id)
-            except Exception:
-                print(f"[D12] Detected missing helper message, resetting.")
-                del settings.DUNGEON12_HELPERS[dungeon_id]
-                return
 
     try:
         if embed.author.name and ' — dungeon' in embed.author.name:

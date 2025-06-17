@@ -183,6 +183,14 @@ async def handle_d13_message(message, from_new_message=True, bot_answer_message=
     if len(embed.fields) < 3:
         return
 
+    if is_d13_dragon_dead(embed):
+        if not getattr(message, "_d13_congratulated", False):
+            await message.channel.send("> 🎉 Congratulations! The ULTRA-OMEGA DRAGON is defeated! Dungeon complete!")
+            setattr(message, "_d13_congratulated", True)
+        D13_HELPERS.pop(message.channel.id, None)
+        D13_ATTACK_SENT.pop(message.channel.id, None)
+        return
+
     # DRAGON PHASE: Only send one attack per message per channel!
     if any("is in the same room as you" in (f.value.lower()) for f in embed.fields):
         if is_d13_dragon_dead(embed):
@@ -271,19 +279,23 @@ def get_embed_hash(embed):
     return h.hexdigest()
 
 def is_d13_dragon_dead(embed):
+    # Lowercase and flatten all fields and the footer
     lower_title = (getattr(embed, "title", "") or "").lower()
     lower_fields = " ".join([
         (getattr(f, "name", "") + " " + getattr(f, "value", ""))
         for f in getattr(embed, "fields", [])
     ]).lower()
     lower_footer = (getattr(embed.footer, "text", "") or "").lower() if getattr(embed, "footer", None) is not None else ""
+
+    # Any of these means the dragon is dead
     dragon_dead_phrases = [
+        "ultra-omega dragon is dead",
         "has killed the ultra-omega dragon",
-        "the ultra-omega dragon is dead",
+        "unlocked the next area",
         "im ded",
         "💜0/lmao",
-        "unlocked the next area"
     ]
+
     test_text = lower_title + " " + lower_fields + " " + lower_footer
     return any(kw in test_text for kw in dragon_dead_phrases)
 
@@ -330,3 +342,5 @@ async def handle_d13_edit(payload, bot, bot_answer_message=None, is_slash=False)
     for k in list(D13_EMBED_HASHES):
         if now - D13_EDIT_DEBOUNCE.get(k, 0) > expire_after:
             del D13_EMBED_HASHES[k]
+
+

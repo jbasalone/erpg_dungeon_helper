@@ -133,6 +133,12 @@ async def dispatch_dungeon_embed(message: discord.Message, event_type: str) -> b
             return True
     return False
 
+def get_category_by_id(guild: discord.Guild, category_id: int):
+    for category in guild.categories:
+        if category.id == category_id:
+            return category
+    return None
+
 @bot.event
 async def on_message(message: discord.Message):
     """
@@ -153,7 +159,7 @@ async def on_message(message: discord.Message):
             await bot_commands.view_available_helpers_in_channel(
                 message.channel, message.author, cmd)
             return
-        if cmd.startswith(("help", "add", "remove")):
+        if cmd.startswith(("help", "add", "remove", "enabled", "list")):
             # Permission: allowed roles or dev or Epic
             if message.author.id not in (settings.DEV_USER_ID, settings.EPIC_RPG_ID):
                 has_role = any(
@@ -162,6 +168,37 @@ async def on_message(message: discord.Message):
                 )
                 if not has_role:
                     return
+            if cmd.lower().startswith("enabled") or cmd.lower().startswith("list"):
+                await bot_commands.list_enabled_channels_command(
+                    message.channel, message.author, message.guild
+                )
+                return
+            if cmd.lower().startswith("add all"):
+                # Example: gh add all #channel or gh add all #category
+                args = cmd.strip().split()
+                target = message.channel
+                if len(args) > 2:
+                    ref = args[2]
+                    # Remove non-digit characters to extract the channel/category id
+                    target_id = int(re.sub(r'\D', '', ref))
+                    t = message.guild.get_channel(target_id)
+                    if t is None:
+                        t = get_category_by_id(message.guild, target_id)
+                await bot_commands.add_all_helpers_to_channel_or_category(target, message.author, message.channel)
+                return
+
+            if cmd.lower().startswith("remove all"):
+                # Example: gh remove all #channel or gh remove all #category
+                args = cmd.strip().split()
+                target = message.channel
+                if len(args) > 2:
+                    ref = args[2]
+                    target_id = int(re.sub(r'\D', '', ref))
+                    t = message.guild.get_channel(target_id)
+                    if t is None:
+                        t = get_category_by_id(message.guild, target_id)
+                await bot_commands.remove_all_helpers_from_channel_or_category(target, message.author, message.channel)
+                return
             if cmd.startswith("help"):
                 await bot_commands.help_command(message.channel, message.author)
             elif cmd.startswith("add"):

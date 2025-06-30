@@ -7,10 +7,19 @@ from utils_patch import safe_send
 from utils_bot import is_channel_allowed, should_handle_edit
 
 def is_d10_embed_msg(message: discord.Message) -> bool:
-    """Detect a brand-new D10 embed from EPIC RPG."""
     if message.author.id != settings.EPIC_RPG_ID or not message.embeds:
         return False
-    return dung_helpers.is_d10_embed(message.author.id, message.embeds[0].to_dict())
+    embed = message.embeds[0]
+    embed_dict = embed.to_dict()
+    fields = embed_dict.get("fields", [])
+    # At least 3 fields, SKILLS field, and "edgy dragon" in first field's name
+    if (
+            len(fields) >= 3 and
+            "edgy dragon" in fields[0]["name"].lower() and
+            any(f["name"].strip().upper() == "SKILLS" for f in fields)
+    ):
+        return True
+    return False
 
 def is_d10_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     """Detect an edit of a D10 embed."""
@@ -24,13 +33,26 @@ def is_d10_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
         # logger.error(f"[D10 Edit] Exception: {exc}")
         return False
 
-async def handle_d10_message(message: discord.Message, *, is_edit: bool = False):
+async def handle_d10_message(
+        message: discord.Message,
+        *,
+        is_edit: bool = None,
+        from_new_message: bool = None
+):
     """
     Handle both new D10 embeds and edits to them.
-    If is_edit=False, we dedupe against ALREADY_HANDLED_MESSAGES.
+    Compatible with dispatcher signature.
     """
+    # Normalize edit state
+    if is_edit is not None:
+        edit = is_edit
+    elif from_new_message is not None:
+        edit = not from_new_message
+    else:
+        edit = False  # default to treating as new message
+
     # 1) Dedupe new embeds
-    if not is_edit:
+    if not edit:
         if message.id in settings.ALREADY_HANDLED_MESSAGES:
             return
         settings.ALREADY_HANDLED_MESSAGES.append(message.id)
@@ -47,7 +69,7 @@ async def handle_d10_message(message: discord.Message, *, is_edit: bool = False)
     # 3) If this is the pre-dungeon charge prompt…
     if not (message.embeds[0].author.name and ' — dungeon' in message.embeds[0].author.name):
         try:
-            if not is_edit:
+            if not edit:
                 helping = await channel.send("> 🔴 **CHARGE EDGY SWORD**")
                 settings.DUNGEON10_HELPERS[channel.id] = dung_helpers.D10_data(helping)
             else:
@@ -56,7 +78,6 @@ async def handle_d10_message(message: discord.Message, *, is_edit: bool = False)
                     data.message = await data.message.edit(content="> 🔴 **CHARGE EDGY SWORD**")
             return
         except Exception as exc:
-            # logger.error(f"[D10] Exception during charge prompt: {exc}")
             return
 
     # 4) Otherwise, parse combat embed
@@ -71,16 +92,14 @@ async def handle_d10_message(message: discord.Message, *, is_edit: bool = False)
         else:
             content = f"> **{len(data.attacker_moves)+len(data.defender_moves)} 🔵 {data.defender_moves.pop(0)}** ({defender})"
     except (KeyError, IndexError, Exception) as exc:
-        # logger.error(f"[D10] Exception during move parse: {exc}")
         return
 
     try:
-        if not is_edit:
+        if not edit:
             data.message = await channel.send(content)
         else:
             await data.message.edit(content=content)
     except Exception as exc:
-        # logger.error(f"[D10] Exception sending/editing message: {exc}")
         return
 
 def _parse_d10_names(embed: dict) -> tuple[str, str, str]:

@@ -251,13 +251,16 @@ async def safe_send(channel, *args, **kwargs):
             print(f"[D14] Failed to send message in {channel}: {e}")
             return None
 
-async def safe_edit(message, *args, **kwargs):
+async def safe_edit(message, *, content=None, **kwargs):
     try:
-        return await message.edit(*args, **kwargs)
+        # Only edit if content has actually changed
+        if content is not None and message.content == content:
+            return message
+        return await message.edit(content=content, **kwargs)
     except Exception:
         await asyncio.sleep(2)
         try:
-            return await message.edit(*args, **kwargs)
+            return await message.edit(content=content, **kwargs)
         except Exception as e:
             chan_id = getattr(message.channel, "id", None)
             print(f"[D14] Failed to edit bot message in {chan_id}: {e}")

@@ -268,7 +268,7 @@ async def on_raw_message_edit(payload: discord.RawMessageUpdateEvent):
         return
 
     # Debug: Uncomment if you want to see when edits are received
-    print(f"[EVENT] on_raw_message_edit: edited message: {edited_message}, channel: {channel}")
+    #print(f"[EVENT] on_raw_message_edit: edited message: {edited_message}, channel: {channel}")
 
     if edited_message.embeds and await dispatch_dungeon_embed(edited_message, event_type="edit"):
         return

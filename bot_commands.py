@@ -4,7 +4,7 @@ from utils_patch import should_process_message, safe_send, log_unmatched_embed
 import settings
 import re
 
-valid_helpers = ('d10', 'd12', 'd13', 'd14', 'd15', 'd15.2', 'all')
+valid_helpers = ('d10', 'd11', 'd12', 'd13', 'd14', 'd15', 'd15.2', 'all')
 
 async def add_all_helpers_to_channel(channel: discord.TextChannel, author: discord.User):
     for helper in valid_helpers[:-1]:  # Exclude "all"
@@ -21,7 +21,7 @@ async def remove_all_helpers_from_channel(channel: discord.TextChannel, author: 
         await safe_send(channel, f"{author.mention}, no helpers were enabled in {channel.mention}.")
 
 def extract_helper_and_channel(raw_args, default_channel_id):
-    valid_helpers = ('d10', 'd12', 'd13', 'd14', 'd15', 'd15.2', 'all')
+    valid_helpers = ('d10', 'd11', 'd12', 'd13', 'd14', 'd15', 'd15.2', 'all')
     dungeon_helper = None
     channel_id = None
 
@@ -53,7 +53,7 @@ async def help_command(channel: discord.TextChannel, author: discord.User):
         description=(
             "Easily manage and review dungeon helpers for your server.\n"
             "You can use **channel mentions** (e.g. `#general`), **category mentions** (e.g. `#my-category`), or numeric **IDs** in any command.\n\n"
-            "**Supported helpers:** `d10`, `d12`, `d13`, `d14`, `d15`, `d15.2`, or `all` (for all dungeons).\n"
+            "**Supported helpers:** `d10`, 'd11',  `d12`, `d13`, `d14`, `d15`, `d15.2`, or `all` (for all dungeons).\n"
             "🔸 *Tip: Use `all` to add or remove every helper at once, for a channel or an entire category!*"
         )
     )
@@ -127,6 +127,7 @@ async def help_command(channel: discord.TextChannel, author: discord.User):
 
     await safe_send(channel, embed=embed)
 
+
 async def view_available_helpers_in_channel(channel: discord.TextChannel,
                                             author: discord.User,
                                             command: str):
@@ -154,7 +155,7 @@ async def view_available_helpers_in_channel(channel: discord.TextChannel,
             added_helpers.append(added_channel.replace(channel_id, ''))
 
     text = ""
-    for helper in ('d10', 'd12', 'd13', 'd14', 'd15', 'd15.2'):
+    for helper in ('d10', 'd11', 'd12', 'd13', 'd14', 'd15', 'd15.2'):
         if helper in added_helpers or settings.ALLOW_HELPERS_IN_ALL_CHANNELS:
             text += f"**{helper.upper()}** - ✅\n"
         else:
@@ -184,7 +185,7 @@ async def add_helper_to_channel(channel: discord.TextChannel,
 
     if dungeon_helper is None or dungeon_helper not in valid_helpers:
         await safe_send(channel,
-                        f"{author.mention}, **INVALID DUNGEON HELPER** - Correct usage: `{settings.PREFIX} add [dungeon] [Channel / Category]`. Dungeon can be `d10`, `d12`, etc.")
+                        f"{author.mention}, **INVALID DUNGEON HELPER** - Correct usage: `{settings.PREFIX} add [dungeon] [Channel / Category]`. Dungeon can be `d10`, 'd11', `d12`, etc.")
         return
 
     if not channel_id.isnumeric():

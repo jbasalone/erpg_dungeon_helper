@@ -8,12 +8,20 @@ import dungeon_helpers.dungeon11 as d11  # D11 logic lives here
 from typing import Any
 
 def is_d11_embed_msg(message: discord.Message) -> bool:
-    """
-    Returns True if the given message is a new D11 embed from EPIC RPG.
-    """
     if message.author.id != settings.EPIC_RPG_ID or not message.embeds:
         return False
-    return d11.is_d11_embed(message.embeds[0], message.author.id)
+    embed = message.embeds[0]
+    embed_dict = embed.to_dict()
+    fields = embed_dict.get("fields", [])
+    author = embed_dict.get("author", {}).get("name", "")
+    if (
+            len(fields) >= 2 and
+            "ultra-edgy dragon" in fields[0]["name"].lower() and
+            fields[1]["name"].strip().lower() == "map" and
+            " — dungeon" in author
+    ):
+        return True
+    return False
 
 def is_d11_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     """
@@ -30,12 +38,22 @@ def is_d11_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
         # Optionally log: logger.warning(f"[D11 Edit] Failed to check edit: {exc}")
         return False
 
-async def handle_d11_message(message: discord.Message, *, is_edit: bool = False):
-    """
-    Handles both new D11 embeds and edits to them.
-    """
+async def handle_d11_message(
+        message: discord.Message,
+        *,
+        is_edit: bool = None,
+        from_new_message: bool = None
+):
+    # Normalize to a single bool for "is this an edit"
+    if is_edit is not None:
+        edit = is_edit
+    elif from_new_message is not None:
+        edit = not from_new_message
+    else:
+        edit = False  # Default fallback: treat as new message
+
     # 1) Deduplicate only for new messages
-    if not is_edit:
+    if not edit:
         already = getattr(settings, "ALREADY_HANDLED_MESSAGES", [])
         if message.id in already:
             return
@@ -53,7 +71,7 @@ async def handle_d11_message(message: discord.Message, *, is_edit: bool = False)
         await d11.handle_d11_move(
             message.embeds[0],
             message.channel,
-            from_message=not is_edit
+            not edit  # True for new messages, False for edits
         )
     except Exception as exc:
         # Optionally log: logger.error(f"[D11] Exception in handle_d11_message: {exc}")

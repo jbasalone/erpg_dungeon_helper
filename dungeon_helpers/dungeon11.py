@@ -17,20 +17,28 @@ class D11Data:
         self.turn_number = 1
 
 
-async def handle_d11_move(embed: discord.Embed,
-                          channel: discord.TextChannel,
-                          form_message: bool):
+async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, form_message: bool):
+    # 1. Early exit if the dragon is dead (victory embed)
+    if (
+            embed.fields and
+            len(embed.fields) > 0 and
+            "is dead" in embed.fields[0].value.lower()
+    ):
+        if channel.id in settings.DUNGEON11_HELPERS:
+            del settings.DUNGEON11_HELPERS[channel.id]
+        return
 
+    # 2. Handle "intro" message (no moves)
     if embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title:
         board_text = embed.fields[0].value
         hp = 0
-
         if channel.id in settings.DUNGEON11_HELPERS:
             del settings.DUNGEON11_HELPERS[channel.id]
+        return  # <--- Also return here, unless you want to do something else for the intro
 
-    else:
-        board_text = embed.fields[1].value
-        hp = int(embed.fields[0].value.split(' — :heart: ')[1].split('\n')[0].split('/')[0].replace(',', ''))
+    # 3. Normal move-handling logic
+    board_text = embed.fields[1].value
+    hp = int(embed.fields[0].value.split(' — :heart: ')[1].split('\n')[0].split('/')[0].replace(',', ''))
 
     if channel.id in settings.DUNGEON11_HELPERS:
         data = settings.DUNGEON11_HELPERS[channel.id]
@@ -41,7 +49,6 @@ async def handle_d11_move(embed: discord.Embed,
     data.hp = hp
 
     x, y, board = extract_d11_data(board_text)
-
     safe_up_near, safe_up_far, safe_right, safe_left = get_safe_zones(board, x, y)
 
     print(safe_up_near, safe_up_far, safe_right, safe_left)
@@ -60,10 +67,19 @@ async def handle_d11_move(embed: discord.Embed,
 
 
 def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_left):
-    """
-    Returns the best move for a d11 configuration
-    """
+    # High HP logic: aggressively move UP even on fire
+    if hp >= 10000:
+        if x == 7 and y == 0:
+            return "ATTACK"
+        if y > 0:
+            return "UP"
+        if x < 7:
+            return "RIGHT"
+        if x > 0:
+            return "LEFT"
+        return "PASS TURN"
 
+    # Existing normal-HP logic
     if x == 7 and y == 0:
         return "ATTACK"
 

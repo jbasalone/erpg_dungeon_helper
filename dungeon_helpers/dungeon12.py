@@ -18,6 +18,42 @@ tile_ids = {
     'ULTRAEDGYarmor': '4'
 }
 
+async def safe_send(channel, *args, **kwargs):
+    import discord, asyncio
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            return await channel.send(*args, **kwargs)
+        except discord.errors.HTTPException as e:
+            retry_after = getattr(e, 'retry_after', None)
+            if retry_after is not None:
+                print(f"[D12] Rate limited on send: waiting {retry_after:.2f}s (attempt {attempt+1})")
+                await asyncio.sleep(float(retry_after) + 0.5)
+            else:
+                await asyncio.sleep(2)
+        except Exception as e:
+            print(f"[D12] Failed to send message: {e}")
+            await asyncio.sleep(2)
+    return None
+
+async def safe_edit(message, *args, **kwargs):
+    import discord, asyncio
+    max_retries = 5
+    chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
+    for attempt in range(max_retries):
+        try:
+            return await message.edit(*args, **kwargs)
+        except discord.errors.HTTPException as e:
+            retry_after = getattr(e, 'retry_after', None)
+            if retry_after is not None:
+                print(f"[D12] Rate limited on edit in {chan_id}: waiting {retry_after:.2f}s (attempt {attempt+1})")
+                await asyncio.sleep(float(retry_after) + 0.5)
+            else:
+                await asyncio.sleep(2)
+        except Exception as e:
+            print(f"[D12] Failed to edit message in {chan_id}: {e}")
+            await asyncio.sleep(2)
+    return None
 
 class D12Data:
     def __init__(self, channel, current_index, solution, message, x, y, last_msg_id=None):
@@ -117,17 +153,17 @@ async def handle_dungeon_12(
         if quick_move:
             msg_txt = f"> **Optimal move:** `{quick_move}` — you can win{' right now!' if quick_move == 'ATTACK' else ' in one move!'}"
             if is_slash_dungeon(message) if message else False:
-                answer_msg = bot_answer_message or await channel.send(content=msg_txt)
+                answer_msg = bot_answer_message or await safe_send(channel, content=msg_txt)
                 try:
-                    await answer_msg.edit(content=msg_txt)
+                    await safe_edit(answer_msg, content=msg_txt)
                 except Exception:
-                    answer_msg = await channel.send(content=msg_txt)
+                    answer_msg = await safe_send(channel, content=msg_txt)
             else:
-                answer_msg = await channel.send(content=msg_txt)
+                answer_msg = await safe_send(channel, content=msg_txt)
             return answer_msg
 
         if orbs is not None and (10 - orbs) * 55 >= hp:
-            answer_msg = await channel.send(content=(
+            answer_msg = await safe_send(channel, content=(
                 f"> The dungeon is __**impossible**__ to win with your current HP. Please heal or get more max hp. "
                 f"If you did a wrong move and you got this message, be more careful next time.\n\n"
                 f"> __Why is it impossible to win???__\n"
@@ -176,11 +212,11 @@ async def handle_dungeon_12(
                 try:
                     if is_slash_dungeon(message) if message else False:
                         answer_msg = data.message or bot_answer_message
-                        await answer_msg.edit(content=content)
+                        await safe_edit(answer_msg, content=content)
                     else:
-                        answer_msg = await channel.send(content=content)
+                        answer_msg = await safe_send(channel, content=content)
                 except Exception:
-                    answer_msg = await channel.send(content=content)
+                    answer_msg = await safe_send(channel, content=content)
                     data.message = answer_msg
                     data.last_msg_id = event_msg_id
                 return answer_msg
@@ -191,14 +227,14 @@ async def handle_dungeon_12(
                 settings.DUNGEON12_HELPERS[dungeon_id] = reroute_id
 
                 try:
-                    reroute_msg_final = await channel.send(content=recalculating_txt)
+                    reroute_msg_final = await safe_send(channel, content=recalculating_txt)
                 except Exception as exc:
                     print(f"[D12] Could not send reroute message: {exc}")
                     reroute_msg_final = None
 
                 try:
                     if data.message:
-                        await data.message.edit(content="(Superseded: A new reroute is in progress. Please follow the latest bot message.)")
+                        await safe_edit(data.message, content="(Superseded: A new reroute is in progress. Please follow the latest bot message.)")
                 except Exception:
                     pass
 
@@ -229,7 +265,7 @@ async def handle_dungeon_12(
                 if attempts == -1 or attempts == 0:
                     fail_text = "> The dungeon is __**impossible**__ to win from this state. Please heal or restart."
                     try:
-                        fail_msg = await channel.send(content=fail_text)
+                        fail_msg = await safe_send(channel, content=fail_text)
                         if hasattr(settings, "DUNGEON12_LAST_ANSWER_MSG"):
                             settings.DUNGEON12_LAST_ANSWER_MSG[channel.id] = fail_msg
                     except Exception as err:
@@ -250,7 +286,7 @@ async def handle_dungeon_12(
                 )
 
                 try:
-                    solution_msg = await channel.send(content=solver_message_content)
+                    solution_msg = await safe_send(channel, content=solver_message_content)
                     if hasattr(settings, "DUNGEON12_LAST_ANSWER_MSG"):
                         settings.DUNGEON12_LAST_ANSWER_MSG[channel.id] = solution_msg
                 except Exception as e:
@@ -270,7 +306,7 @@ async def handle_dungeon_12(
         currently_on = embed.fields[2].value.split('Currently on ')[1].split('\n')[0]
         orbs = int(embed.fields[2].value.split('**Energy orbs**: ')[1].split('/')[0])
         if (10 - orbs) * 55 >= hp:
-            answer_msg = await channel.send(content=(
+            answer_msg = await safe_send(channel, content=(
                 f"> The dungeon is __**impossible**__ to win with your current HP. Please heal or get more max hp. "
                 f"If you did a wrong move and you got this message, be more careful next time.\n\n"
                 f"> __Why is it impossible to win???__\n"
@@ -284,14 +320,14 @@ async def handle_dungeon_12(
         try:
             if is_slash_dungeon(message) if message else False:
                 if bot_answer_message:
-                    await bot_answer_message.edit(content="I have started looking for a solution, please wait...")
+                    await safe_edit(bot_answer_message, content="I have started looking for a solution, please wait...")
                     asking_message = bot_answer_message
                 else:
-                    asking_message = await channel.send(content="I have started looking for a solution, please wait...")
+                    asking_message = await safe_send(channel, content="I have started looking for a solution, please wait...")
             else:
-                asking_message = await channel.send(content="I have started looking for a solution, please wait...")
+                asking_message = await safe_send(channel, content="I have started looking for a solution, please wait...")
         except Exception:
-            asking_message = await channel.send(content="I have started looking for a solution, please wait...")
+            asking_message = await safe_send(channel, content="I have started looking for a solution, please wait...")
 
         solution_search_id = random.randint(1, 100_000_000)
         settings.DUNGEON12_HELPERS[dungeon_id] = solution_search_id
@@ -321,7 +357,7 @@ async def handle_dungeon_12(
             return None
 
         if attempts == 0:
-            await asking_message.edit(content=(
+            await safe_edit(asking_message, content=(
                 f"> The dungeon is __**impossible**__ to win with your current HP. Please heal or get more max hp. "
                 f"You need at least 901HP for this dungeon."
             ))
@@ -342,11 +378,11 @@ async def handle_dungeon_12(
         try:
             if is_slash_dungeon(message) if message else False:
                 answer_msg = bot_answer_message or asking_message
-                await answer_msg.edit(content=solver_message_content)
+                await safe_edit(answer_msg, content=solver_message_content)
             else:
-                answer_msg = await channel.send(content=solver_message_content)
+                answer_msg = await safe_send(channel, content=solver_message_content)
         except Exception:
-            answer_msg = await channel.send(content=solver_message_content)
+            answer_msg = await safe_send(channel, content=solver_message_content)
 
         new_data = D12Data(channel, 0, solution, answer_msg, x, y, last_msg_id=event_msg_id)
         settings.DUNGEON12_HELPERS[dungeon_id] = new_data
@@ -356,7 +392,6 @@ async def handle_dungeon_12(
         print("[D12] Exception in handle_dungeon_12")
         traceback.print_exc()
         return None
-
 
 async def handle_d12_winning_embed(embed: discord.Embed, channel: discord.TextChannel, from_new_message: bool):
     print("D12 HANDLER: Called with from_new_message =", from_new_message)
@@ -369,17 +404,16 @@ async def handle_d12_winning_embed(embed: discord.Embed, channel: discord.TextCh
             content = f"> **CONGRATULATIONS!** {random.choice(RANDOM_EMOJIS)}"
             try:
                 if from_new_message:
-                    await channel.send(content=content)
+                    await safe_send(channel, content=content)
                 else:
-                    await data.message.edit(content=content)
+                    await safe_edit(data.message, content=content)
             except Exception as exc:
                 print(f"[D12] Error on win message: {exc}")
-                await channel.send(content=content)
+                await safe_send(channel, content=content)
             if channel.id in settings.DUNGEON12_HELPERS:
                 del settings.DUNGEON12_HELPERS[channel.id]
             return True
     return False
-
 
 def is_d12_embed(author_id: int, embed: discord.Embed):
     return (
@@ -445,6 +479,7 @@ async def solve_d12_c(initial_message: discord.Message,
     best_hp_lost = 0
     attempts = 0
     shown_increase_hp_view = False
+    last_edit_time = 0
     while True:
         await asyncio.sleep(0.2)
         # Stop if another solution was started (just mark as superseded, don't delete!)
@@ -453,7 +488,7 @@ async def solve_d12_c(initial_message: discord.Message,
                 or settings.DUNGEON12_HELPERS[initial_message.channel.id] != solution_search_id:
             kill_process(proc)
             try:
-                await initial_message.edit(content="(Superseded: A new reroute/search started. Please follow the latest bot message.)")
+                await safe_edit(initial_message, content="(Superseded: A new reroute/search started. Please follow the latest bot message.)")
             except Exception:
                 pass  # Don't care if already deleted
             return [], -1, -1, -1
@@ -463,7 +498,8 @@ async def solve_d12_c(initial_message: discord.Message,
         if increase_hp_view.current_user_hp != hp:
             hp = increase_hp_view.current_user_hp
             kill_process(proc)
-            await initial_message.edit(
+            await safe_edit(
+                initial_message,
                 content=increase_hp_view.get_formatted_search_message(),
                 view=increase_hp_view)
             proc = await asyncio.create_subprocess_exec(
@@ -478,20 +514,20 @@ async def solve_d12_c(initial_message: discord.Message,
             best_hp_lost = hp_lost
             break
         increase_hp_view.time_passed = round(increase_hp_view.time_passed + 0.2, 2)
-        if increase_hp_view.time_passed % 5 == 0 and not hp_is_exact:
-            shown_increase_hp_view = True
-            await initial_message.edit(
-                content=increase_hp_view.get_formatted_search_message(),
-                view=increase_hp_view)
-        elif increase_hp_view.time_passed % 5 == 0 and hp_is_exact:
-            await initial_message.edit(
-                content=f"""> 🕓 - **{int(increase_hp_view.time_passed):.1f}s passed - Still searching for a solution...**
+        now = time.time()
+        if (increase_hp_view.time_passed % 5 == 0 and not hp_is_exact) or (increase_hp_view.time_passed % 5 == 0 and hp_is_exact):
+            if now - last_edit_time > 1.0:
+                content = (
+                    increase_hp_view.get_formatted_search_message() if not hp_is_exact else
+                    f"""> 🕓 - **{int(increase_hp_view.time_passed):.1f}s passed - Still searching for a solution...**
 ⚠ For dungeon 12, the recommended HP 901 ♥. 
 **__NEVER__** start a dungeon 12 with less than 901HP. The chance that it will not be possible to win is high."""
-            )
+                )
+                await safe_edit(initial_message, content=content, view=(increase_hp_view if not hp_is_exact else None))
+                last_edit_time = now
 
     if shown_increase_hp_view:
-        await initial_message.edit(view=None)
+        await safe_edit(initial_message, view=None)
 
     kill_process(proc)
 
@@ -533,16 +569,21 @@ If you have higher HP press the buttons below to increase it (faster to find a s
     @discord.ui.button(label="+10HP", emoji="♥", style=discord.ButtonStyle.green)
     async def a(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_user_hp += 10
-        await interaction.message.edit(
-            content=self.get_formatted_search_message(), view=self
+        await safe_edit(
+            interaction.message,
+            content=self.get_formatted_search_message(),
+            view=self
         )
 
     @discord.ui.button(label="+100HP", emoji="♥", style=discord.ButtonStyle.green)
     async def b(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_user_hp += 100
-        await interaction.message.edit(
-            content=self.get_formatted_search_message(), view=self
+        await safe_edit(
+            interaction.message,
+            content=self.get_formatted_search_message(),
+            view=self
         )
+
 def d12_check_win(board, y, x, orbs):
     """
     Returns:

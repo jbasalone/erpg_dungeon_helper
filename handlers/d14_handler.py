@@ -47,13 +47,6 @@ def map_state_hash(MAP, HP, Y, X):
     return hashlib.sha1(s.encode()).hexdigest()
 
 async def handle_d14_message(message: discord.Message, from_new_message: bool = None):
-    """
-    Main handler for D14 messages.
-    Handles:
-    - Starting move recommendation (pre-move)
-    - Solver step-by-step suggestions (post-move)
-    - Victory handling and plan caching
-    """
     # 0. Preconditions
     if not is_channel_allowed(message.channel.id, "d14", settings) or not message.embeds:
         return
@@ -139,47 +132,36 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         solution, tiles_path, hp_req, elapsed, prev_step, prev_Y, prev_X = plan
         print(f"[D14 PLAN] step={prev_step}, pos={(Y,X)}, prev={(prev_Y,prev_X)}")
 
-        # 5a. User moved to expected next tile in plan
-        if prev_step < len(tiles_path) and (Y, X) == tiles_path[prev_step]:
-            step = prev_step + 1
-            should_resolve = False
-            print(f"  > Player moved to expected next tile in plan, step {step}")
-
-        # 5b. Player did not move, but next step is ATTACK or PASS TURN
-        elif (
-                prev_step < len(solution)
-                and solution[prev_step] in ("ATTACK", "PASS TURN")
-                and (Y, X) == (prev_Y, prev_X)
-        ):
-            step = prev_step + 1
-            should_resolve = False
-            print(f"  > Player executed {solution[prev_step]} at tile {tiles_path[prev_step]} (no movement) -> step {step}")
-
-        # 5c. Special: just followed plan to first tile
-        elif prev_step == 0 and (Y, X) == tiles_path[0]:
-            step = 1
-            should_resolve = False
-            print(f"  > Player followed plan to first tile {tiles_path[0]} -> step {step}")
-
-        # 5d. User jumped ahead: use furthest matching tile forward (never back)
-        elif (Y, X) in tiles_path[prev_step+1:]:
-            idx = max(i for i, pos in enumerate(tiles_path[prev_step+1:], start=prev_step+1) if pos == (Y, X))
-            step = idx + 1
-            should_resolve = False
-            print(f"  > Player jumped ahead to tile {tiles_path[idx]}, jumping to step {step}")
-
-        else:
-            should_resolve = True
-            print(f"  > Move not found in plan, replanning")
-            if is_slash:
-                last_msg = LAST_BOT_MSG.get(channel.id)
-                if last_msg:
-                    await safe_edit(last_msg, content="> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
-                else:
-                    await safe_send(channel, "> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
-
-        if not should_resolve:
-            save_plan(channel.id, (solution, tiles_path, hp_req, elapsed, step, Y, X))
+        if prev_step < len(solution):
+            next_move = solution[prev_step]
+            expected_pos = tiles_path[prev_step]
+            # ATTACK/PASS TURN: must stay on same tile
+            if next_move in ("ATTACK", "PASS TURN") and (Y, X) == (prev_Y, prev_X):
+                step = prev_step + 1
+                should_resolve = False
+                print(f"  > Player executed {next_move} at tile {expected_pos} (no movement) -> step {step}")
+            # NORMAL move: must have moved to expected tile
+            elif (Y, X) == expected_pos:
+                step = prev_step + 1
+                should_resolve = False
+                print(f"  > Player moved to expected next tile in plan, step {step}")
+            # JUMPED ahead: furthest matching tile forward (never back)
+            elif (Y, X) in tiles_path[prev_step+1:]:
+                idx = max(i for i, pos in enumerate(tiles_path[prev_step+1:], start=prev_step+1) if pos == (Y, X))
+                step = idx + 1
+                should_resolve = False
+                print(f"  > Player jumped ahead to tile {tiles_path[idx]}, jumping to step {step}")
+            else:
+                should_resolve = True
+                print(f"  > Move not found in plan, replanning")
+                if is_slash:
+                    last_msg = LAST_BOT_MSG.get(channel.id)
+                    if last_msg:
+                        await safe_edit(last_msg, content="> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
+                    else:
+                        await safe_send(channel, "> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
+            if not should_resolve:
+                save_plan(channel.id, (solution, tiles_path, hp_req, elapsed, step, Y, X))
 
     if should_resolve:
         # 6. “Solving...” status
@@ -240,7 +222,6 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
             LAST_BOT_MSG[channel.id] = msg
     else:
         await safe_send(channel, out)
-
 # --- helpers (unchanged) ---
 
 def path_from_moves(start_y, start_x, moves):
@@ -260,29 +241,47 @@ def path_from_moves(start_y, start_x, moves):
     return path
 
 async def safe_send(channel, *args, **kwargs):
-    try:
-        return await channel.send(*args, **kwargs)
-    except Exception:
-        await asyncio.sleep(2)
+    max_retries = 5
+    for attempt in range(max_retries):
         try:
             return await channel.send(*args, **kwargs)
+        except discord.errors.HTTPException as e:
+            retry_after = getattr(e, 'retry_after', None)
+            if retry_after is not None:
+                print(f"[D14] Rate limited on send in {getattr(channel, 'id', '?')}: waiting {retry_after:.2f}s (attempt {attempt+1})")
+                await asyncio.sleep(float(retry_after) + 0.5)
+            else:
+                print(f"[D14] HTTPException (send) in {getattr(channel, 'id', '?')}: {e} (attempt {attempt+1})")
+                await asyncio.sleep(2)
         except Exception as e:
-            print(f"[D14] Failed to send message in {channel}: {e}")
-            return None
+            print(f"[D14] Failed to send message in {getattr(channel, 'id', '?')}: {e}")
+            await asyncio.sleep(2)
+    print(f"[D14] Giving up sending message in {getattr(channel, 'id', '?')} after {max_retries} retries.")
+    return None
 
 async def safe_edit(message, *args, **kwargs):
-    try:
-        return await message.edit(*args, **kwargs)
-    except Exception:
-        await asyncio.sleep(2)
+    max_retries = 5
+    for attempt in range(max_retries):
         try:
             return await message.edit(*args, **kwargs)
+        except discord.errors.HTTPException as e:
+            retry_after = getattr(e, 'retry_after', None)
+            chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
+            if retry_after is not None:
+                print(f"[D14] Rate limited on edit in {chan_id}: waiting {retry_after:.2f}s (attempt {attempt+1})")
+                await asyncio.sleep(float(retry_after) + 0.5)
+            else:
+                print(f"[D14] HTTPException (edit) in {chan_id}: {e} (attempt {attempt+1})")
+                await asyncio.sleep(2)
         except Exception as e:
-            chan_id = getattr(message.channel, "id", None)
-            print(f"[D14] Failed to edit bot message in {chan_id}: {e}")
-            if chan_id and chan_id in LAST_BOT_MSG:
-                LAST_BOT_MSG.pop(chan_id, None)
-            return None
+            chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
+            print(f"[D14] Failed to edit message in {chan_id}: {e}")
+            await asyncio.sleep(2)
+    print(f"[D14] Giving up editing message in {chan_id} after {max_retries} retries.")
+    # Optionally: clean up LAST_BOT_MSG as before
+    if chan_id and 'LAST_BOT_MSG' in globals() and chan_id in LAST_BOT_MSG:
+        LAST_BOT_MSG.pop(chan_id, None)
+    return None
 
 async def handle_d14_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     if not is_d14_embed_edit(payload):

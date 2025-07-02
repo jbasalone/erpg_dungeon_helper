@@ -1,4 +1,5 @@
 # handlers/d10_handler.py
+# embed recognition
 
 import discord
 import settings

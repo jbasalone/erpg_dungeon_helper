@@ -453,13 +453,15 @@ def get_x_y_d12(board_text):
             x += 1
     return 0, 0
 
-async def solve_d12_c(initial_message: discord.Message,
-                      board_text: str,
-                      currently_on_text: str,
-                      orbs: int,
-                      hp: int,
-                      solution_search_id: int,
-                      hp_is_exact=False):
+async def solve_d12_c(
+        initial_message: discord.Message,
+        board_text: str,
+        currently_on_text: str,
+        orbs: int,
+        hp: int,
+        solution_search_id: int,
+        hp_is_exact=False
+):
     from platform import system
     import time
     import asyncio
@@ -478,23 +480,32 @@ async def solve_d12_c(initial_message: discord.Message,
     best_solution = []
     best_hp_lost = 0
     attempts = 0
-    shown_increase_hp_view = False
-    last_edit_time = 0
+
+    # For debounced status/progress edits
+    status_update_interval = 1.0  # seconds
+    last_status_update = 0
+
     while True:
         await asyncio.sleep(0.2)
-        # Stop if another solution was started (just mark as superseded, don't delete!)
-        if initial_message.channel.id not in settings.DUNGEON12_HELPERS \
-                or type(settings.DUNGEON12_HELPERS[initial_message.channel.id]) != int \
-                or settings.DUNGEON12_HELPERS[initial_message.channel.id] != solution_search_id:
+        # Check for superseded search/reroute
+        if (
+                initial_message.channel.id not in settings.DUNGEON12_HELPERS or
+                type(settings.DUNGEON12_HELPERS[initial_message.channel.id]) != int or
+                settings.DUNGEON12_HELPERS[initial_message.channel.id] != solution_search_id
+        ):
             kill_process(proc)
             try:
                 await safe_edit(initial_message, content="(Superseded: A new reroute/search started. Please follow the latest bot message.)")
             except Exception:
-                pass  # Don't care if already deleted
+                pass
             return [], -1, -1, -1
+
+        # Give up after 90s
         if increase_hp_view.time_passed >= 90:
             kill_process(proc)
             return [], 0, 0, 0
+
+        # User increased HP in the view
         if increase_hp_view.current_user_hp != hp:
             hp = increase_hp_view.current_user_hp
             kill_process(proc)
@@ -507,27 +518,28 @@ async def solve_d12_c(initial_message: discord.Message,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE)
             continue
-        # If the process returned something
+
+        # If the process returned a result: RETURN IMMEDIATELY (don't wait!)
         if proc.returncode is not None:
             solution, hp_lost, attempts = await process_d12_solution_output(proc)
             best_solution = solution
             best_hp_lost = hp_lost
             break
-        increase_hp_view.time_passed = round(increase_hp_view.time_passed + 0.2, 2)
-        now = time.time()
-        if (increase_hp_view.time_passed % 5 == 0 and not hp_is_exact) or (increase_hp_view.time_passed % 5 == 0 and hp_is_exact):
-            if now - last_edit_time > 1.0:
-                content = (
-                    increase_hp_view.get_formatted_search_message() if not hp_is_exact else
-                    f"""> 🕓 - **{int(increase_hp_view.time_passed):.1f}s passed - Still searching for a solution...**
-⚠ For dungeon 12, the recommended HP 901 ♥. 
-**__NEVER__** start a dungeon 12 with less than 901HP. The chance that it will not be possible to win is high."""
-                )
-                await safe_edit(initial_message, content=content, view=(increase_hp_view if not hp_is_exact else None))
-                last_edit_time = now
 
-    if shown_increase_hp_view:
-        await safe_edit(initial_message, view=None)
+        # Debounced status/progress edit (every 2s)
+        now = time.time()
+        increase_hp_view.time_passed = round(increase_hp_view.time_passed + 0.2, 2)
+        if now - last_status_update > status_update_interval:
+            if not hp_is_exact:
+                await safe_edit(initial_message, content=increase_hp_view.get_formatted_search_message(), view=increase_hp_view)
+            else:
+                await safe_edit(initial_message, content=f"""> 🕓 - **{int(increase_hp_view.time_passed):.1f}s passed - Still searching for a solution...**
+⚠ For dungeon 12, the recommended HP is 901 ♥. 
+**__NEVER__** start a dungeon 12 with less than 901HP. The chance that it will not be possible to win is high.""")
+            last_status_update = now
+
+    # Remove view after finish, if it was shown
+    await safe_edit(initial_message, view=None)
 
     kill_process(proc)
 

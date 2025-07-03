@@ -71,11 +71,13 @@ def is_channel_allowed(channel_id, tag):
     return settings.ALLOW_HELPERS_IN_ALL_CHANNELS or key in settings.allowed_channels
 
 async def note_dungeon_confirmation(channel: discord.TextChannel, tag: Union[int, float]):
-    # Only send one notice per entry
     if channel.id in settings.NOTED_MESSAGE:
         return
     if not is_channel_allowed(channel.id, tag):
         return
+    # Only D11: send HP warning BEFORE first embed
+    if str(tag) == "11":
+        await safe_send(channel, "> ⚠️ **D11 is recommended for users with at least 1000 HP!** If you have less, you should heal before entering.")
     msg = await safe_send(channel, f"> 📘 Noted: Dungeon `{tag}` confirmed. Awaiting board…")
     settings.NOTED_MESSAGE[channel.id] = msg
 

@@ -48,7 +48,11 @@ def map_state_hash(MAP, HP, Y, X):
 
 async def handle_d14_message(message: discord.Message, from_new_message: bool = None):
     # 0. Preconditions
+    channel = message.channel
     if not is_channel_allowed(message.channel.id, "d14", settings) or not message.embeds:
+        return
+    if channel.id in VICTORY_SENT:
+        print(f"[D14] Skipping output: already won in {channel.id}")
         return
 
     channel = message.channel
@@ -65,8 +69,8 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
     # 2. Victory check
     victory_key = (channel.id, message.id)
     if is_d14_victory_embed(embed):
-        if victory_key not in VICTORY_SENT:
-            VICTORY_SENT.add(victory_key)
+        if channel.id not in VICTORY_SENT:
+            VICTORY_SENT.add(channel.id)
             last_bot = LAST_BOT_MSG.pop(channel.id, None)
             LAST_D14_PLAN.pop(channel.id, None)
             LAST_D14_HANDLED.pop(channel.id, None)
@@ -243,6 +247,10 @@ def path_from_moves(start_y, start_x, moves):
 async def safe_send(channel, *args, **kwargs):
     max_retries = 5
     for attempt in range(max_retries):
+        # Victory check: if dungeon already won, abort immediately
+        if channel.id in VICTORY_SENT:
+            print(f"[D14] Victory detected in safe_send (channel {channel.id}), aborting send.")
+            return None
         try:
             return await channel.send(*args, **kwargs)
         except discord.errors.HTTPException as e:
@@ -251,7 +259,6 @@ async def safe_send(channel, *args, **kwargs):
                 print(f"[D14] Rate limited on send in {getattr(channel, 'id', '?')}: waiting {retry_after:.2f}s (attempt {attempt+1})")
                 await asyncio.sleep(float(retry_after) + 0.5)
             else:
-                print(f"[D14] HTTPException (send) in {getattr(channel, 'id', '?')}: {e} (attempt {attempt+1})")
                 await asyncio.sleep(2)
         except Exception as e:
             print(f"[D14] Failed to send message in {getattr(channel, 'id', '?')}: {e}")
@@ -261,26 +268,25 @@ async def safe_send(channel, *args, **kwargs):
 
 async def safe_edit(message, *args, **kwargs):
     max_retries = 5
+    chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
     for attempt in range(max_retries):
+        # Victory check
+        if chan_id in VICTORY_SENT:
+            print(f"[D14] Victory detected in safe_edit (channel {chan_id}), aborting edit.")
+            return None
         try:
             return await message.edit(*args, **kwargs)
         except discord.errors.HTTPException as e:
             retry_after = getattr(e, 'retry_after', None)
-            chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
             if retry_after is not None:
                 print(f"[D14] Rate limited on edit in {chan_id}: waiting {retry_after:.2f}s (attempt {attempt+1})")
                 await asyncio.sleep(float(retry_after) + 0.5)
             else:
-                print(f"[D14] HTTPException (edit) in {chan_id}: {e} (attempt {attempt+1})")
                 await asyncio.sleep(2)
         except Exception as e:
-            chan_id = getattr(getattr(message, 'channel', None), 'id', '?')
             print(f"[D14] Failed to edit message in {chan_id}: {e}")
             await asyncio.sleep(2)
     print(f"[D14] Giving up editing message in {chan_id} after {max_retries} retries.")
-    # Optionally: clean up LAST_BOT_MSG as before
-    if chan_id and 'LAST_BOT_MSG' in globals() and chan_id in LAST_BOT_MSG:
-        LAST_BOT_MSG.pop(chan_id, None)
     return None
 
 async def handle_d14_edit(payload: discord.RawMessageUpdateEvent) -> bool:

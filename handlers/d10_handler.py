@@ -1,5 +1,4 @@
 # handlers/d10_handler.py
-# embed recognition
 
 import discord
 import settings
@@ -14,11 +13,24 @@ def is_d10_embed_msg(message: discord.Message) -> bool:
     embed_dict = embed.to_dict()
     fields = embed_dict.get("fields", [])
     title = embed_dict.get("title", "").lower()
-    # Accept if 'edgy dragon' is in the title OR first field name
+    author_name = embed_dict.get("author", {}).get("name", "") if "author" in embed_dict else ""
+
+    # Detect the initial EDGY DRAGON prompt
     if "edgy dragon" in title:
         return True
+
+    # Detect all subsequent D10 turns with author "— dungeon" and a SKILLS field
+    if (
+            author_name
+            and "— dungeon" in author_name.lower()
+            and any(f.get("name", "").strip().upper() == "SKILLS" for f in fields)
+    ):
+        return True
+
+    # Detect "edgy dragon" in first field name (for odd/legacy formats)
     if fields and "edgy dragon" in fields[0].get("name", "").lower():
         return True
+
     return False
 
 def is_d10_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
@@ -39,10 +51,12 @@ async def handle_d10_message(
         is_edit: bool = None,
         from_new_message: bool = None
 ):
-    """
-    Handles both new D10 embeds (including the initial Edgy Dragon prompt)
-    and edits to them. Compatible with dispatcher signature.
-    """
+    print(f"[D10 DEBUG] Got D10 embed in channel {message.channel.id}, edit={is_edit}")
+    embed_dict = message.embeds[0].to_dict()
+    print(f"[D10 DEBUG] Embed title: {embed_dict.get('title')}")
+    print(f"[D10 DEBUG] Embed author: {embed_dict.get('author',{}).get('name')}")
+    print(f"[D10 DEBUG] Fields: {[f.get('name','') for f in embed_dict.get('fields',[])]}")
+
     # Normalize edit state
     if is_edit is not None:
         edit = is_edit
@@ -89,6 +103,7 @@ async def handle_d10_message(
         try:
             if not edit:
                 helping = await safe_send("> 🔴 **CHARGE EDGY SWORD**")
+                print(f"[D10 DEBUG] Sending move: {helping}")
                 settings.DUNGEON10_HELPERS[channel.id] = dung_helpers.D10_data(helping)
             else:
                 data = settings.DUNGEON10_HELPERS.get(channel.id)
@@ -105,11 +120,14 @@ async def handle_d10_message(
         data = settings.DUNGEON10_HELPERS.get(channel.id)
         if not data:
             return
-
-        if player == attacker:
+        if player == attacker and data.attacker_moves:
             content = f"> **{len(data.attacker_moves)+len(data.defender_moves)} 🔴 {data.attacker_moves.pop(0)}** ({attacker})"
-        else:
+        elif data.defender_moves:
             content = f"> **{len(data.attacker_moves)+len(data.defender_moves)} 🔵 {data.defender_moves.pop(0)}** ({defender})"
+        else:
+            content = "> ⚠️ All moves exhausted for D10! (Bug?)"
+            print(f"[D10 Handler] All moves exhausted for channel {channel.id}, cleaning up helper state.")
+            settings.DUNGEON10_HELPERS.pop(channel.id, None)
     except (KeyError, IndexError, Exception) as exc:
         print(f"[D10 Handler] Exception handler: {exc}")
         return
@@ -117,6 +135,7 @@ async def handle_d10_message(
     try:
         if not edit:
             data.message = await safe_send(content)
+            print(f"[D10 DEBUG] Sending move: {content}")
         else:
             await data.message.edit(content=content)
     except Exception as exc:

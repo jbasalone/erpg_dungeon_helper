@@ -13,6 +13,8 @@ from dung_helpers import (
     MOVE_EMOJI,
 )
 from utils_bot import is_channel_allowed
+from utils_cache import get_message_with_cache
+
 
 VICTORY_SENT = set()
 LAST_BOT_MSG = {}
@@ -82,6 +84,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
 
     # 3. Pre-move: recommend first step
     if is_d14_embed(embed) == 2:
+        VICTORY_SENT.discard(channel.id)
         try:
             MAP, HP, Y, X = get_d14_map_data(embed, None, None)
             tile, move = dung_helpers.get_best_d14_start_move(MAP, X, Y)
@@ -299,24 +302,26 @@ async def handle_d14_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     if author == settings.BOT_ID:
         return False
     channel = await settings.bot.fetch_channel(payload.channel_id)
-    message = await channel.fetch_message(payload.message_id)
+    message = await get_message_with_cache(channel, payload.message_id)
     await handle_d14_message(message)
     return True
 
 def is_d14_victory_embed(embed: dict) -> bool:
-    import re
     for field in embed.get("fields", []):
         name = field.get("name", "").lower()
         value = field.get("value", "").replace(",", "").lower().strip()
-        if "godly dragon" in name:
-            if "has killed the godly dragon" in value:
+        # stricter: must include both "godly dragon" AND "has killed the godly dragon"
+        if "godly dragon" in name and "has killed the godly dragon" in value:
+            return True
+        for line in value.splitlines():
+            # stricter: only match if the entire value is this line (no extra)
+            if line.strip() == "**the godly dragon** — :purple_heart: 0/2000":
                 return True
-            for line in value.splitlines():
-                m = re.match(r"\*\*the godly dragon\*\* — :purple_heart: ?0/2000$", line.strip())
-                if m:
-                    return True
+    # Only trigger on footer for embeds where "godly dragon" is in title or field name
     if "footer" in embed and embed["footer"].get("text"):
         footer = embed["footer"]["text"].lower().strip()
-        if "has unlocked the next area" in footer or "unlocked commands:" in footer:
-            return True
+        if ("godly dragon" in embed.get("title", "").lower() or
+                any("godly dragon" in field.get("name", "").lower() for field in embed.get("fields", []))):
+            if "has unlocked the next area" in footer or "unlocked commands:" in footer:
+                return True
     return False

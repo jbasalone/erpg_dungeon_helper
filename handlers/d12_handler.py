@@ -4,6 +4,7 @@ import dungeon_helpers.dungeon12 as dung12
 import time
 from utils_bot import should_handle_edit, find_last_bot_answer_message
 
+
 def is_d12_embed_msg(message: discord.Message) -> bool:
     if message.author.id not in (settings.EPIC_RPG_ID, settings.UTILITY_NECROBOT_ID, settings.BETA_BOT_ID):
         return False
@@ -46,14 +47,9 @@ async def handle_d12_message(message: discord.Message, from_new_message: bool):
 
     # Get last bot answer if needed
     answer_message = None
-    if not from_new_message:
-        if hasattr(settings, "DUNGEON12_LAST_ANSWER_MSG"):
-            answer_message = settings.DUNGEON12_LAST_ANSWER_MSG.get(message.channel.id)
-        # If not found, try to find it in channel
-        if answer_message is None:
-            answer_message = await find_last_bot_answer_message(
-                message.channel, settings.BOT_ID, after_message_id=message.id
-            )
+    if not from_new_message and hasattr(settings, "DUNGEON12_LAST_ANSWER_MSG"):
+        answer_message = settings.DUNGEON12_LAST_ANSWER_MSG.get(message.channel.id)
+
     # Call the actual D12 logic
     new_answer = await dung12.handle_dungeon_12(
         embed=message.embeds[0],

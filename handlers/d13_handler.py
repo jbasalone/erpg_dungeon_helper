@@ -3,6 +3,8 @@ import asyncio
 import re
 import settings
 import hashlib
+from utils_cache import get_message_with_cache
+
 
 D13_HELPERS = {}
 D13_MSG_ANSWERED = set()
@@ -315,7 +317,7 @@ async def handle_d13_edit(payload, bot, bot_answer_message=None, is_slash=False)
     else:
         try:
             channel = await bot.fetch_channel(payload.channel_id)
-            message = await channel.fetch_message(payload.message_id)
+            message = await get_message_with_cache(channel, payload.message_id)
             D13_MSG_CACHE[key] = (message, now)
         except Exception as e:
             print(f"[D13 FETCH ERROR] {e}")

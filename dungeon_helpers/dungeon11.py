@@ -14,9 +14,13 @@ class D11Data:
         self.message: discord.Message = None
         self.hp = None
         self.turn_number = 1
-        self.last_move_key = None   # For deduplication
+        self.last_player_pos = None  # (x, y)
+        self.last_move = None        # move name
+
 
 async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, form_message: bool):
+    import re
+
     # 1. Victory: clean up and exit
     if (
             embed.fields and
@@ -29,15 +33,17 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
 
     # 2. Intro: always send a move and reset state
     if embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title:
-        data = settings.DUNGEON11_HELPERS.get(channel.id) or D11Data()
+        data = D11Data()
         data.turn_number = 1
-        data.last_move_key = None  # Add this field to deduplicate
+        data.last_player_pos = None
+        data.last_move = None
         board_text = embed.fields[0].value
         x, y, board = extract_d11_data(board_text)
         move = "RIGHT"
         content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
         data.message = await channel.send(content)
-        data.last_move_key = make_move_key(x, y, move)  # Save board+move for dedupe
+        data.last_player_pos = (x, y)
+        data.last_move = move
         data.turn_number += 1
         settings.DUNGEON11_HELPERS[channel.id] = data
         return
@@ -45,6 +51,7 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     # 3. Normal move (after intro)
     data = settings.DUNGEON11_HELPERS.get(channel.id)
     if not data:
+        # Recovery: shouldn't happen, but create new data
         data = D11Data()
         data.turn_number = 2
         settings.DUNGEON11_HELPERS[channel.id] = data
@@ -65,11 +72,9 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     safe_up_near, safe_up_far, safe_right, safe_left = get_safe_zones(board, x, y)
     move = get_d11_move(board, x, y, data.hp, safe_up_near, safe_up_far, safe_right, safe_left)
 
-    move_key = make_move_key(x, y, move)
-
-    # Only send/patch if move or board state changes
-    if getattr(data, 'last_move_key', None) == move_key:
-        # Already sent this move for this board state, do nothing
+    # Only send/patch if the player position or move changed (deduplication)
+    if data.last_player_pos == (x, y) and data.last_move == move:
+        # Nothing new happened, so don't increment turn or resend
         return
 
     msg_content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
@@ -81,7 +86,8 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     else:
         data.message = await channel.send(msg_content)
     data.turn_number += 1
-    data.last_move_key = move_key
+    data.last_player_pos = (x, y)
+    data.last_move = move
 
 def make_move_key(x, y, move):
     # Unique key for the move at a given state; could also hash the board, but this is simple

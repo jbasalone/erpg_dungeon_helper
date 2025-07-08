@@ -7,30 +7,16 @@ from utils_patch import safe_send
 from utils_bot import is_channel_allowed, should_handle_edit
 
 def is_d10_embed_msg(message: discord.Message) -> bool:
+    """Detect a brand-new D10 embed from EPIC RPG (but not D11)."""
     if message.author.id != settings.EPIC_RPG_ID or not message.embeds:
         return False
-    embed = message.embeds[0]
-    embed_dict = embed.to_dict()
-    fields = embed_dict.get("fields", [])
-    title = embed_dict.get("title", "").lower()
-    author_name = embed_dict.get("author", {}).get("name", "") if "author" in embed_dict else ""
-
-    # Detect the initial EDGY DRAGON prompt
-    if "edgy dragon" in title:
+    embed = message.embeds[0].to_dict()
+    fields = embed.get("fields", [])
+    # D10: First field name always has "<:EDGYdragon:" but NOT "ULTRAEDGYdragon"
+    if fields and fields[0]["name"].startswith("<:EDGYdragon:") \
+            and "ULTRAEDGYdragon" not in fields[0]["name"]:
+        # Additional: D10 typically doesn't have a "Map" as the second field
         return True
-
-    # Detect all subsequent D10 turns with author "— dungeon" and a SKILLS field
-    if (
-            author_name
-            and "— dungeon" in author_name.lower()
-            and any(f.get("name", "").strip().upper() == "SKILLS" for f in fields)
-    ):
-        return True
-
-    # Detect "edgy dragon" in first field name (for odd/legacy formats)
-    if fields and "edgy dragon" in fields[0].get("name", "").lower():
-        return True
-
     return False
 
 def is_d10_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
@@ -45,49 +31,56 @@ def is_d10_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
         print(f"[D10 Handler] Exception detecting edit: {exc}")
         return False
 
-async def handle_d10_message(
-        message: discord.Message,
+async def handle_d10_message(message: discord.Message, *, is_edit: bool = None, from_new_message: bool = None):
+    """
+    Handles new messages (full message object).
+    Delegates to the core handler using the embed.
+    """
+    embed = message.embeds[0]
+    await handle_d10_message_from_embed(
+        embed=embed,
+        channel=message.channel,
+        is_edit=is_edit if is_edit is not None else (not from_new_message)
+    )
+
+async def handle_d10_message_from_embed(
+        embed: discord.Embed,
+        channel: discord.TextChannel,
         *,
-        is_edit: bool = None,
-        from_new_message: bool = None
+        is_edit: bool = False
 ):
-    print(f"[D10 DEBUG] Got D10 embed in channel {message.channel.id}, edit={is_edit}")
-    embed_dict = message.embeds[0].to_dict()
+    print(f"[D10 DEBUG] Got D10 embed in channel {channel.id}, edit={is_edit}")
+    embed_dict = embed.to_dict()
     print(f"[D10 DEBUG] Embed title: {embed_dict.get('title')}")
     print(f"[D10 DEBUG] Embed author: {embed_dict.get('author',{}).get('name')}")
     print(f"[D10 DEBUG] Fields: {[f.get('name','') for f in embed_dict.get('fields',[])]}")
 
-    # Normalize edit state
-    if is_edit is not None:
-        edit = is_edit
-    elif from_new_message is not None:
-        edit = not from_new_message
-    else:
-        edit = False  # default to treating as new message
-
-    # 1) Dedupe new embeds
-    if not edit:
-        if message.id in settings.ALREADY_HANDLED_MESSAGES:
-            return
-        settings.ALREADY_HANDLED_MESSAGES.append(message.id)
+    # 1) Dedupe new embeds (not edits)
+    if not is_edit:
+        if hasattr(settings, "ALREADY_HANDLED_MESSAGES"):
+            if getattr(channel, "last_message_id", None) in settings.ALREADY_HANDLED_MESSAGES:
+                return
+        if not hasattr(settings, "ALREADY_HANDLED_MESSAGES"):
+            settings.ALREADY_HANDLED_MESSAGES = []
+        if getattr(channel, "last_message_id", None):
+            settings.ALREADY_HANDLED_MESSAGES.append(channel.last_message_id)
         if len(settings.ALREADY_HANDLED_MESSAGES) > 5000:
             settings.ALREADY_HANDLED_MESSAGES.clear()
 
     # 2) Permission check
-    if not is_channel_allowed(message.channel.id, "d10", settings):
+    if not is_channel_allowed(channel.id, "d10", settings):
         return
 
-    embed_dict = message.embeds[0].to_dict()
-    channel = message.channel
-    title = embed_dict.get("title", "").lower()
     fields = embed_dict.get("fields", [])
+    title = embed_dict.get("title", "").lower()
     author_name = embed_dict.get("author", {}).get("name", "") if "author" in embed_dict else ""
 
     # 3) Handle the initial Edgy Dragon prompt (no author, single field)
     if "edgy dragon" in title and len(fields) == 1:
         try:
-            if not edit:
+            if not is_edit:
                 helping = await channel.send("> 🔴 **CHARGE EDGY SWORD**")
+                print(f"[D10 SEND] Sent CHARGE EDGY SWORD message: {helping}")
                 settings.DUNGEON10_HELPERS[channel.id] = dung_helpers.D10_data(helping)
             else:
                 data = settings.DUNGEON10_HELPERS.get(channel.id)
@@ -101,8 +94,8 @@ async def handle_d10_message(
     # 4) Otherwise, fallback to classic handling for multi-field embeds
     if not (author_name and ' — dungeon' in author_name):
         try:
-            if not edit:
-                helping = await safe_send("> 🔴 **CHARGE EDGY SWORD**")
+            if not is_edit:
+                helping = await safe_send(channel, "> 🔴 **CHARGE EDGY SWORD**")
                 print(f"[D10 DEBUG] Sending move: {helping}")
                 settings.DUNGEON10_HELPERS[channel.id] = dung_helpers.D10_data(helping)
             else:
@@ -114,7 +107,7 @@ async def handle_d10_message(
             print(f"[D10] Exception in fallback handling: {exc}")
             return
 
-    # 4) Otherwise, parse combat embed
+    # 5) Otherwise, parse combat embed
     try:
         attacker, defender, player = _parse_d10_names(embed_dict)
         data = settings.DUNGEON10_HELPERS.get(channel.id)
@@ -133,14 +126,15 @@ async def handle_d10_message(
         return
 
     try:
-        if not edit:
-            data.message = await safe_send(content)
+        if not is_edit:
+            data.message = await safe_send(channel, content)
             print(f"[D10 DEBUG] Sending move: {content}")
         else:
             await data.message.edit(content=content)
     except Exception as exc:
         print(f"[D10 Handler] Exception handle_d10: {exc}")
         return
+
 
 def _parse_d10_names(embed: dict) -> tuple[str, str, str]:
     """
@@ -183,27 +177,28 @@ def _parse_d10_names(embed: dict) -> tuple[str, str, str]:
 
 async def handle_d10_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     """
-    Raw -edit dispatcher for D10. Re-fetches the message and hands it off.
+    Raw -edit dispatcher for D10. No refetch! Use embed from payload.
     """
-    # 1) Is this the right embed?
     if not is_d10_embed_edit(payload):
         return False
-
-    # 2) Skip our own edits
     author_id = int(payload.data.get("author",{}).get("id",0))
     if author_id == settings.BOT_ID:
         return False
-
-    # 3) Permission / in-flight check
     if payload.channel_id not in settings.DUNGEON10_HELPERS and not should_handle_edit(payload, "d10"):
         return False
 
-    # 4) Re-fetch & delegate
     try:
         channel = await settings.bot.fetch_channel(payload.channel_id)
-        message = await channel.fetch_message(payload.message_id)
-        await handle_d10_message(message, is_edit=True)
+        embeds = payload.data.get("embeds", [])
+        if not embeds:
+            return False
+        embed = discord.Embed.from_dict(embeds[0])
+        await handle_d10_message_from_embed(
+            embed=embed,
+            channel=channel,
+            is_edit=True
+        )
         return True
     except Exception as exc:
-        print(f"[D10 Handler] Exception parsing names: {exc}")
+        print(f"[D10 Handler] Exception in edit handler: {exc}")
         return False

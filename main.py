@@ -6,6 +6,8 @@ from utils_patch import safe_send
 import settings
 import bot_commands
 import sqlitedict
+from utils_cache import get_message_with_cache
+
 
 from handlers import (
     d10_handler, d11_handler, d12_handler, d13_handler,
@@ -129,6 +131,16 @@ async def dispatch_dungeon_embed(message: discord.Message, event_type: str) -> b
         if is_fn(message):
             if not is_channel_allowed(cid, tag):
                 return False
+
+            # D11: Only handle the intro embed on 'message', everything else on 'edit'
+            if tag == 11:
+                embed = message.embeds[0]
+                if event_type != "edit":
+                    # Only allow the first intro embed on 'message'
+                    if not (embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title):
+                        print("[D11 PATCH] Skipping D11 move on non-edit and not intro event")
+                        return False
+
             from_new_message = should_send_new_message(event_type, message, cid)
             print(f"Calling {handle_fn.__name__} with from_new_message={from_new_message}")
             await handle_fn(message, from_new_message=from_new_message)
@@ -265,7 +277,7 @@ async def on_raw_message_edit(payload: discord.RawMessageUpdateEvent):
         return
 
     try:
-        edited_message = await channel.fetch_message(payload.message_id)
+        edited_message = await get_message_with_cache(channel, payload.message_id)
     except Exception:
         return
 

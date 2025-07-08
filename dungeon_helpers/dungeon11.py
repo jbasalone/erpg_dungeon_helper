@@ -1,6 +1,6 @@
 import copy
 import random
-
+import re
 import discord
 import sqlitedict
 import settings
@@ -14,9 +14,10 @@ class D11Data:
         self.message: discord.Message = None
         self.hp = None
         self.turn_number = 1
+        self.last_move_key = None   # For deduplication
 
 async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, form_message: bool):
-    # 1. If dragon is dead, clean up and exit
+    # 1. Victory: clean up and exit
     if (
             embed.fields and
             len(embed.fields) > 0 and
@@ -26,57 +27,65 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
             del settings.DUNGEON11_HELPERS[channel.id]
         return
 
-    # 2. If it's the intro embed, send the first move (RIGHT), set dummy HP, and return
+    # 2. Intro: always send a move and reset state
     if embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title:
+        data = settings.DUNGEON11_HELPERS.get(channel.id) or D11Data()
+        data.turn_number = 1
+        data.last_move_key = None  # Add this field to deduplicate
         board_text = embed.fields[0].value
-        if channel.id in settings.DUNGEON11_HELPERS:
-            data = settings.DUNGEON11_HELPERS[channel.id]
-        else:
-            data = D11Data()
-            settings.DUNGEON11_HELPERS[channel.id] = data
-        data.hp = 0
         x, y, board = extract_d11_data(board_text)
         move = "RIGHT"
-        data.message = await channel.send(f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**")
+        content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
+        data.message = await channel.send(content)
+        data.last_move_key = make_move_key(x, y, move)  # Save board+move for dedupe
         data.turn_number += 1
+        settings.DUNGEON11_HELPERS[channel.id] = data
         return
 
-    # 3. Normal move-handling logic: extract HP, board, and warn if HP is low
-    board_text = embed.fields[1].value
-    try:
-        hp = int(embed.fields[0].value.split(' — :heart: ')[1].split('\n')[0].split('/')[0].replace(',', ''))
-    except Exception:
-        hp = 0
-
-    if channel.id in settings.DUNGEON11_HELPERS:
-        data = settings.DUNGEON11_HELPERS[channel.id]
-    else:
+    # 3. Normal move (after intro)
+    data = settings.DUNGEON11_HELPERS.get(channel.id)
+    if not data:
         data = D11Data()
+        data.turn_number = 2
         settings.DUNGEON11_HELPERS[channel.id] = data
 
-    # HP warning (show only the very first time)
-    if data.turn_number == 1 and hp < 1000:
-        await channel.send("> ⚠️ **Your HP is too low for D11! It's recommended to have at least 1000 HP before attempting this dungeon.** You can still continue, but it's risky.")
+    # Parse player HP (be defensive)
+    data.hp = 0
+    try:
+        for field in embed.fields:
+            hp_match = re.search(r"❤️\s*([\d,]+)", field.value)
+            if hp_match:
+                data.hp = int(hp_match.group(1).replace(',', ''))
+                break
+    except Exception:
+        data.hp = 0
 
-    data.hp = hp
+    board_text = embed.fields[1].value
     x, y, board = extract_d11_data(board_text)
     safe_up_near, safe_up_far, safe_right, safe_left = get_safe_zones(board, x, y)
-
-    # DEBUG output (can be removed in prod)
-    print(safe_up_near, safe_up_far, safe_right, safe_left)
-    print(x, y)
-    for line in board:
-        print(line)
-
     move = get_d11_move(board, x, y, data.hp, safe_up_near, safe_up_far, safe_right, safe_left)
 
-    # Send/edit move message
-    if form_message or not data.message:
-        data.message = await channel.send(f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**")
-    else:
-        await data.message.edit(content=f">  **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]} **")
+    move_key = make_move_key(x, y, move)
 
+    # Only send/patch if move or board state changes
+    if getattr(data, 'last_move_key', None) == move_key:
+        # Already sent this move for this board state, do nothing
+        return
+
+    msg_content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
+    if data.message is not None:
+        try:
+            await data.message.edit(content=msg_content)
+        except Exception:
+            data.message = await channel.send(msg_content)
+    else:
+        data.message = await channel.send(msg_content)
     data.turn_number += 1
+    data.last_move_key = move_key
+
+def make_move_key(x, y, move):
+    # Unique key for the move at a given state; could also hash the board, but this is simple
+    return f"{x}:{y}:{move}"
 
 def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_left):
     # 1. High HP (aggressive mode): Always go UP if possible, even on fire

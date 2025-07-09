@@ -6,6 +6,7 @@ import random
 import subprocess
 import time
 import re
+import sys
 from platform import system
 
 import discord
@@ -14,7 +15,7 @@ import threading
 
 import settings
 from utils_bot import is_slash_dungeon, d14_send
-
+from utils_patch import edit_dedupe
 from dataclasses import dataclass, field
 from typing import Optional, List, Any
 
@@ -128,78 +129,82 @@ class HighHpSolutionView(discord.ui.View):
         await interaction.response.edit_message(view=self)
         self.stop()
 
-
-async def solve_d14_c(board, Y, X, HP, yellow_poison, orange_poison, inital_message: discord.Message):
+async def solve_d14_c(
+        board, Y, X, HP, yellow_poison, orange_poison, inital_message: discord.Message
+):
     new_board = []
     for line in board:
         new_board += [str(i) for i in line]
 
-    if system() == 'Linux':
+    if system() == "Linux":
         program = r"./dungeon_solvers/D14/D14_LINUX_SOLVER"
     else:
         program = "dungeon_solvers/D14/D14_HELPER_CODE.exe"
 
-    # print(*new_board, *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)])
-
     start_time = time.perf_counter()
-    proc = await asyncio.create_subprocess_exec(program, *new_board,
-                                                *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)],
-                                                stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
-    is_next_to_alive_dragon = ((X == 1 and Y == 1 and board[0][1] == D14ids.DRAGON.value)
-                               or (X == 6 and Y == 1 and board[0][6] == D14ids.DRAGON.value))
+    proc = await asyncio.create_subprocess_exec(
+        program,
+        *new_board,
+        *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)],
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    is_next_to_alive_dragon = (
+            (X == 1 and Y == 1 and board[0][1] == 8)
+            or (X == 6 and Y == 1 and board[0][6] == 8)
+    )
 
-    # print(is_next_to_alive_dragon, board[0][1] == D14ids.DRAGON.value, board[0][6] == D14ids.DRAGON.value)
-
-    time_passed = 0
-    brown_view = BrownSearchView()
-    hp_view = HighHpSolutionView()
+    time_passed = 0.0
     best_solution = []
     best_solution_tiles = []
     best_hp_lost = 0
     attempts = 0
 
+    from dung_helpers import BrownSearchView, HighHpSolutionView
+    brown_view = BrownSearchView()
+    hp_view = HighHpSolutionView()
+
     while True:
         await asyncio.sleep(0.5)
+        time_passed += 0.5
 
         # Only let the bot search 30s for the best solution
         if time_passed >= 30 and best_solution:
             break
 
-        # If they liked the solution found, stop
-        if hp_view.is_finished():
-            break
-
-        # If the process returned someting
+        # If the process returned something
         if proc.returncode is not None:
+            from dung_helpers import process_solution_output
             real_solution, tiles_of_solution, attempts, hp_lost = await process_solution_output(proc)
 
             if not is_next_to_alive_dragon and len(real_solution) > 0 and real_solution[0] == 'ATTACK':
-
                 proc = await asyncio.create_subprocess_exec(
                     program, *new_board,
                     *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)],
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE)
-
+                    stderr=asyncio.subprocess.PIPE,
+                )
             elif HP >= 2000:
                 if not best_solution or (len(real_solution) < len(best_solution)) or (
-                        len(best_solution) == len(real_solution) and hp_lost < best_hp_lost):
+                        len(best_solution) == len(real_solution) and hp_lost < best_hp_lost
+                ):
                     best_solution = real_solution
                     best_solution_tiles = tiles_of_solution
                     best_hp_lost = hp_lost
 
-                    await inital_message.edit(content=f"""> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... [{time_passed} seconds passed]**
-
-📶 **Best solution length: {len(best_solution)}**
-❤ **HP Required: {best_hp_lost}**""", view=hp_view)
-
+                    new_content = (
+                        f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
+                        f"[{int(time_passed)} seconds passed]**\n\n"
+                        f"📶 **Best solution length: {len(best_solution)}**\n"
+                        f"❤ **HP Required: {best_hp_lost}**"
+                    )
+                    await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
                 proc = await asyncio.create_subprocess_exec(
                     program, *new_board,
                     *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)],
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE)
-
+                    stderr=asyncio.subprocess.PIPE,
+                )
             else:
                 best_solution = real_solution
                 best_solution_tiles = tiles_of_solution
@@ -211,32 +216,42 @@ async def solve_d14_c(board, Y, X, HP, yellow_poison, orange_poison, inital_mess
                 proc.kill()
             except ProcessLookupError:
                 pass
-
             for child in brown_view.children:
                 child.disabled = True
-            await inital_message.edit(view=brown_view)
+            await edit_dedupe.safe_edit(inital_message, view=brown_view)
+            return [], [], 0, 0, -1
 
-            return [], [], 0, 0, -1  # Return -1 so the go-to brown tile protocol begins
+        if hp_view.is_finished():
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            break
+
+        if time_passed % 5 == 0 and not best_solution:
+            new_content = (
+                f"> 🕓 - **{int(time_passed)} seconds passed** - [after 20 seconds it's recommended to go to a brown tile!]"
+            )
+            await edit_dedupe.safe_edit(inital_message, content=new_content, view=brown_view)
+
+        elif time_passed % 5 == 0 and best_solution:
+            new_content = (
+                f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
+                f"[{int(time_passed)} seconds passed]**\n\n"
+                f"📶 **Best solution length: {len(best_solution)}**\n"
+                f"❤ **HP Required: {best_hp_lost}**"
+            )
+            await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
 
         if brown_view.is_finished():
             try:
                 proc.kill()
             except ProcessLookupError:
                 pass
-
-            return [], [], 0, 0, -1  # Return -1 so the go-to brown tile protocol begins
-
-        time_passed += 0.5
-        if time_passed % 5 == 0 and not best_solution:
-            await inital_message.edit(
-                content=f"""> 🕓 - **{int(time_passed)} seconds passed** - [after 20 seconds it's recommended to go to a brown tile!]""",
-                view=brown_view)
-
-        elif time_passed % 5 == 0 and best_solution:
-            await inital_message.edit(content=f"""> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... [{time_passed} seconds passed]**
-
-📶 **Best solution length: {len(best_solution)}**
-❤ **HP Required: {best_hp_lost}**""", view=hp_view)
+            for child in brown_view.children:
+                child.disabled = True
+            await edit_dedupe.safe_edit(inital_message, view=brown_view)
+            return [], [], 0, 0, -1
 
     try:
         proc.kill()
@@ -245,6 +260,13 @@ async def solve_d14_c(board, Y, X, HP, yellow_poison, orange_poison, inital_mess
 
     end_time = time.perf_counter()
     time_taken = round(end_time - start_time, 3)
+
+    final_content = (
+        f"> <:ep_greenleaf:1375735418292801567> Solution found! \n\n"
+        f"📶 **Best solution length: {len(best_solution)}**\n"
+        f"❤ **HP Required: {best_hp_lost}**"
+    )
+    await edit_dedupe.safe_edit(inital_message, content=final_content, view=None)
 
     return best_solution, best_solution_tiles, attempts, best_hp_lost, time_taken
 

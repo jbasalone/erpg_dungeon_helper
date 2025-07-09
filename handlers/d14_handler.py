@@ -4,7 +4,7 @@ import dung_helpers
 import settings
 import time
 from typing import Optional, Tuple, Dict
-
+from utils_patch import edit_dedupe
 
 from dung_helpers import (
     is_d14_embed,
@@ -77,7 +77,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
             LAST_D14_PLAN.pop(channel.id, None)
             LAST_D14_HANDLED.pop(channel.id, None)
             if last_bot:
-                await safe_edit(last_bot, content="> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
+                await edit_dedupe.safe_edit(last_bot, content="> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
             else:
                 await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
         return
@@ -164,7 +164,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
                 if is_slash:
                     last_msg = LAST_BOT_MSG.get(channel.id)
                     if last_msg:
-                        await safe_edit(last_msg, content="> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
+                        await edit_dedupe.safe_edit(last_msg, content="> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
                     else:
                         await safe_send(channel, "> ⚠️ Detected an unexpected move. <:ep_greenleaf:1375735418292801567> Recomputing the solution…")
             if not should_resolve:
@@ -176,7 +176,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
             last_msg = LAST_BOT_MSG.get(channel.id)
             if last_msg:
                 try:
-                    await safe_edit(last_msg, content="> <:ep_greenleaf:1375735418292801567> 🕒 **Solving...**")
+                    await edit_dedupe.safe_edit(last_msg, content="> <:ep_greenleaf:1375735418292801567> 🕒 **Solving...**")
                 except:
                     last_msg = await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> 🕒 **Solving...**")
                     LAST_BOT_MSG[channel.id] = last_msg
@@ -205,7 +205,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         if is_slash:
             last_msg = LAST_BOT_MSG.get(channel.id)
             if last_msg:
-                await safe_edit(last_msg, content="> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
+                await edit_dedupe.safe_edit(last_msg, content="> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
             else:
                 await safe_send(channel, "> <:ep_greenleaf:1375735418292801567> All moves complete, waiting for victory!")
         else:
@@ -223,7 +223,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
     if is_slash:
         last_msg = LAST_BOT_MSG.get(channel.id)
         try:
-            await safe_edit(last_msg, content=out)
+            await edit_dedupe.safe_edit(last_msg, content=out)
         except:
             msg = await safe_send(channel, out)
             LAST_BOT_MSG[channel.id] = msg

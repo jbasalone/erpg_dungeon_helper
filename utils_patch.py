@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import hashlib
 from collections import OrderedDict
 from typing import Optional
@@ -55,3 +56,29 @@ async def safe_send(channel, content=None, delay: float = 0.5, **kwargs):
 
 def log_unmatched_embed(embed):
     logger.warning(f"[utils_hash] Embed did not match known patterns: {embed}")
+
+class EditDeduplicator:
+    def __init__(self):
+        # key = msg.id, value = (last_content, last_view, last_edit_time)
+        self.last_edit = {}
+
+    async def safe_edit(self, message, content=None, view=None, min_delay=4.0):
+        key = message.id
+        now = time.monotonic()
+        last_content, last_view, last_time = self.last_edit.get(key, (None, None, 0))
+        if (content == last_content) and (view == last_view):
+            # Already set to this, skip!
+            return
+        if now - last_time < min_delay:
+            # Too soon, skip!
+            return
+        try:
+            await message.edit(content=content, view=view)
+            self.last_edit[key] = (content, view, now)
+        except Exception as e:
+            # If you want to auto-wait for 429:
+            if hasattr(e, "status") and e.status == 429:
+                await asyncio.sleep(min_delay)
+            else:
+                raise
+edit_dedupe = EditDeduplicator()

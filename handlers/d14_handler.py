@@ -51,15 +51,22 @@ def map_state_hash(MAP, HP, Y, X):
 async def handle_d14_message(message: discord.Message, from_new_message: bool = None):
     # 0. Preconditions
     channel = message.channel
+    embed = message.embeds[0].to_dict()
+
+    if is_d14_embed(embed) == 2:
+        VICTORY_SENT.discard(channel.id)
+        LAST_BOT_MSG.pop(channel.id, None)
+        LAST_D14_PLAN.pop(channel.id, None)
+        LAST_D14_HANDLED.pop(channel.id, None)
     if not is_channel_allowed(message.channel.id, "d14", settings) or not message.embeds:
         return
     if channel.id in VICTORY_SENT:
         print(f"[D14] Skipping output: already won in {channel.id}")
         return
 
-    channel = message.channel
-    embed = message.embeds[0].to_dict()
+
     is_slash = is_slash_dungeon(message)
+
 
     # 1. Debounce rapid-fire edits
     now = time.monotonic()
@@ -84,7 +91,6 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
 
     # 3. Pre-move: recommend first step
     if is_d14_embed(embed) == 2:
-        VICTORY_SENT.discard(channel.id)
         try:
             MAP, HP, Y, X = get_d14_map_data(embed, None, None)
             tile, move = dung_helpers.get_best_d14_start_move(MAP, X, Y)

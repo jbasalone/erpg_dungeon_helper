@@ -1,31 +1,35 @@
 # Epic RPG Discord Dungeon Helper
 
-A **Discord bot** for automatically solving and assisting with high-level Epic RPG dungeons (D10–D15), with advanced logic for D13, D14, and D15.  
-Supports both classic `rpg dungeon` message-based runs and `/dungeon` slash commands.
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Discord.py](https://img.shields.io/badge/discord.py-v2.x-blueviolet)](https://github.com/Rapptz/discord.py)
+[![License](https://img.shields.io/github/license/jbasalone/epic-rpg-dungeon-helper.svg?style=flat)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/jbasalone/epic-rpg-dungeon-helper.svg)](https://github.com/jbasalone/epic-rpg-dungeon-helper/issues)
+[![Stars](https://img.shields.io/github/stars/jbasalone/epic-rpg-dungeon-helper.svg?style=social)](https://github.com/jbasalone/epic-rpg-dungeon-helper/stargazers)
+
+A **feature-rich Discord bot** for automatically solving and assisting with high-level Epic RPG dungeons (D10–D15), with advanced logic for D13, D14, and D15.  
+Supports both classic `rpg dungeon` text commands and `/dungeon` slash commands. Now with improved mistake recovery, interactive Discord UI, and robust anti-rate-limit handling.
 
 ---
 
 ## Features
 
-- 🐉 **D13 Auto-Solver:**  
-  - Answers all D13 "Ultra-Omega Dragon" questions automatically.
-  - Detects current dungeon phase and picks the right answer type (`correct`, `not_so_wrong`, or `wrong`).
-  - Handles mistakes and recovers state automatically, always giving the correct next move.
-
-- 🧩 **D14 Solver:**  
-  - Integrates with an external binary for optimal path-finding (Linux and Windows supported).
-  - Provides best HP solution, brown-tile fallback, and interactive Discord UI buttons.
-
-- ⏳ **D15 & D15.2 Support:**  
-  - External solver integration for Time Dragon dungeons, including board state and move simulation.
-  - Verifies solver outputs, can retry for valid solutions, and applies move effects for full simulation.
-
-- ⚔️ **General Features:**
-  - **Multi-dungeon:** Supports D10–D15 helpers, with flexible channel-based enable/disable.
-  - **Slash Command Compatible:** Seamless support for both classic and slash dungeons.
-  - **Smart Deduplication:** No duplicate answers or repeated moves.
-  - **Mistake Recovery:** Bot always recovers and recalculates from the current game state.
-  - **Configurable:** Per-dungeon and per-channel toggles in `settings.py`.
+- 🐉 **Full D10–D15 Auto-Assist:**
+    - Solves all D10–D15 dungeons, including unique logic for each.
+    - **D13:** Instantly answers all Ultra-Omega Dragon questions, handles all "phase" transitions, and always recovers state.
+    - **D14:** Calls an external binary (Windows & Linux supported) for true optimal pathfinding, with brown-tile fallback and Discord UI buttons.
+    - **D15/D15.2:** Time Dragon solver with move simulation, external binary, and safety checks.
+- ⚡ **Mistake Proof:**
+    - The bot tracks dungeon state, deduplicates answers, and always recalculates after user errors or manual moves.
+- 🔄 **Smart Rate-Limit & Edit Handling:**
+    - Built-in debounce, cooldowns, and retry logic for Discord rate limits and Epic RPG's edit-driven embeds.
+- 🆕 **Interactive UI:**
+    - Modern Discord UI components for "go to brown tile," solution confirmation, and HP warnings.
+- 🎛️ **Highly Configurable:**
+    - Per-dungeon and per-channel toggles, slash/classic autodetection, easy setup in `settings.py`.
+- 🛡️ **Persistent State (on restart):**
+    - Dungeon helper data is cached per channel, so helpers recover after a bot reboot.
+- 🔍 **Debug & Recovery Tools:**
+    - Extensive logging, dev commands for clearing helper state or rate-limit recovery.
 
 ---
 
@@ -33,31 +37,32 @@ Supports both classic `rpg dungeon` message-based runs and `/dungeon` slash comm
 
 ### Prerequisites
 
-- Python 3.9+
-- [discord.py](https://github.com/Rapptz/discord.py) (tested on v2.x)
-- Epic RPG Discord bot
-- Access to compile/run C++ or Rust binaries (for D14/D15 solvers)
+- Python 3.9+ (tested with 3.9–3.12)
+- [discord.py v2.x](https://github.com/Rapptz/discord.py)
+- The Epic RPG Discord bot in your server
+- Ability to compile/run external solver binaries (C++ or Rust, for D14/D15)
 - Linux or Windows OS
 
 ### Setup
 
-1. **Clone this repository:**
+1. **Clone the repository:**
     ```bash
     git clone https://github.com/yourusername/epic-rpg-dungeon-helper.git
     cd epic-rpg-dungeon-helper
     ```
 
-2. **Install dependencies:**
+2. **Install Python dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
 
-3. **Configure your settings:**
-    - Copy `settings_example.py` to `settings.py` and edit your bot token, allowed channels, and other config as needed.
-    - Add your Discord bot credentials and set channel IDs for each dungeon helper.
+3. **Configure your bot:**
+    - Copy `settings_example.py` to `settings.py`.
+    - Edit your Discord bot token, allowed channel IDs, and any helper toggles needed.
 
-4. **(Optional) Build/Download Solvers:**
-    - For D14/D15: Place compiled solver binaries in `dungeon_solvers/D14/` and `dungeon_solvers/D15/` as required.
+4. **Solvers for D14 & D15:**
+    - Build or download the external solver binaries for your OS.
+    - Place them in `dungeon_solvers/D14/` and `dungeon_solvers/D15/` folders.
 
 5. **Run the bot:**
     ```bash
@@ -70,60 +75,58 @@ Supports both classic `rpg dungeon` message-based runs and `/dungeon` slash comm
 
 ### Main Components
 
-- `main.py` – Event loop, message & embed handlers, command router.
-- `dung_helpers.py` – Dungeon logic for D13–D15; action selection, state, solver interface.
-- `settings.py` – Bot config: IDs, allowed channels, dungeon helper state.
-- `utils_bot.py` – Helper utilities: dungeon detection, permissions, bot interaction.
-- `dungeon_solvers/` – External binaries for advanced dungeon pathfinding.
+- `main.py` – Bot event loop, message & edit handlers, command registration.
+- `handlers/` – Each dungeon (D10–D15) has its own logic, state tracking, and embed parsing.
+- `dung_helpers.py` – Advanced logic, answer parsing, and solver interface.
+- `settings.py` – Global config, IDs, helper state.
+- `utils_*.py` – Helper modules: channel permissions, cache, rate limit handling, safe_send utilities.
+- `dungeon_solvers/` – External binaries for D14/D15 pathfinding.
 
-### D13 Helper Logic
+### Dungeon Helper Logic
 
-- **Game Phases:**  
-  D13 is divided into 4 main steps, auto-detected from board state (`room_number`, `dragon_room`).
-- **Answer Selection:**  
-  The bot parses the question/answers and picks the right answer using logic from `get_d13_action` and `get_answer`.
-- **Recovery:**  
-  If the user makes a mistake, the bot recalculates phase from the current embed, and shows a friendly message.
+- **Auto-Detection:**  
+  The bot uses embed parsing and message context to determine which dungeon and phase is active.
+- **Error Recovery:**  
+  If the bot is restarted or the user makes an incorrect move, the bot resynchronizes with the current dungeon state.
 - **Deduplication:**  
-  The bot ensures each state is only answered once per room/question combo.
-
-### Other Dungeons
-
-- **D14 & D15**  
-  Call external binaries to compute optimal moves, parse board state, and respond via Discord.
-- **D15.2**  
-  Handles special phase 2 mechanics and advanced move simulation.
+  Only one helper output per move/phase; repeated events are ignored.
+- **Victory/Completion Handling:**  
+  The bot automatically clears and resets helper state on victory or channel wipe.
 
 ---
 
 ## Usage
 
-- Start a dungeon as usual (`rpg dungeon` or `/dungeon`).
-- The bot will detect D13–D15 dungeons and post the correct moves in the configured channel.
-- For D13: The bot will always recover from mistakes, show which move to pick, and increment turn count.
-- For D14/D15: Interactive helpers, external solvers, and Discord UI buttons are available.
+- **Start a dungeon as usual** (`rpg dungeon` or `/dungeon`).
+- The bot will detect and post the correct moves for D10–D15 in the configured channels.
+- For D13–D15:
+    - Full recovery if you make mistakes or do manual moves.
+    - Interactive Discord UI for brown-tile fallback or solution confirmations (D14).
+    - HP and safety warnings if your stats are low.
 
 ---
 
 ## Configuration
 
-- **Per-dungeon channel enable:**  
-  In `settings.py`, edit the `DUNGEON13_HELPERS`, `DUNGEON14_HELPERS`, etc., to control which channels each helper is active in.
-
-- **Slash command compatibility:**  
-  The bot auto-detects whether the run is classic or slash and responds accordingly (edit in-place or send a new message).
+- **Per-dungeon, per-channel enable:**  
+  Configure allowed channels and dungeon toggles in `settings.py`.
+- **Slash command support:**  
+  Classic and slash dungeons are automatically detected and handled.
+- **Advanced (optional):**
+    - Rate-limit/cooldown values
+    - Custom HP warnings
+    - Dev/test command registration for live debugging
 
 ---
 
 ## Contribution
 
-Contributions, bug reports, and feature requests are welcome!
+All contributions, bug reports, and feature requests are welcome!
 
-- Fork the repository
-- Create a branch (`git checkout -b feature/my-feature`)
-- Commit your changes
-- Push to the branch (`git push origin feature/my-feature`)
-- Open a Pull Request
+- Fork the repository.
+- Create a feature branch (`git checkout -b feature/my-feature`).
+- Make your changes, push (`git push origin feature/my-feature`).
+- Open a Pull Request.
 
 ---
 
@@ -135,29 +138,32 @@ MIT License (see [LICENSE](LICENSE) for details)
 
 ## Acknowledgements
 
-- [Epic RPG](https://discord.gg/epic-rpg) (the original game)
-- Open-source contributors on GitHub
-- The Epic RPG helper community
-- Original Solvers from Discord Users: @necromancer23 @557841939375063068
+- [Epic RPG](https://discord.gg/epic-rpg)
+- Discord.py maintainers and open-source contributors
+- Special thanks: @necromancer23, @557841939375063068
 
 ---
 
 ## FAQ
 
-**Q: What happens if I make a mistake in D13?**  
-A: The bot automatically recalculates the correct step and continues from your current state.
+**Q: Does the bot recover after a Discord or bot restart?**  
+A: Yes! Helper state is tracked per channel and re-synced on the next move or embed.
 
-**Q: Do I need to recompile the solvers?**  
-A: Only if you're on a new platform or want to update for a new Epic RPG mechanic.
+**Q: What if I get rate-limited?**  
+A: The bot will retry sending messages, respect Discord rate limits, and recover state if interrupted.
 
-**Q: Can I use this for D10–D12?**  
-A: Yes, basic helpers are included for lower dungeons.
+**Q: Do I have to compile the solvers?**  
+A: You only need to build the external binaries for D14/D15 if your platform changes or a solver update is needed.
+
+**Q: Can I use this bot for D10–D12?**  
+A: Yes—basic helpers are included for all dungeons, with advanced logic for D13+.
 
 ---
 
 ## Screenshots
 
+*(Insert screenshots here to showcase the bot in action!)*
 
 ---
 
-Happy dungeoning!
+Happy dungeoning & good luck with your dragons! 🐲

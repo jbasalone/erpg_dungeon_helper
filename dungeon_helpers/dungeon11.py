@@ -6,7 +6,6 @@ import sqlitedict
 import settings
 
 d11_solutions = sqlitedict.SqliteDict('./dbs/d11_solutions.sqlite')
-
 MOVE_TO_EMOJI = {'LEFT': '⬅', 'RIGHT': '➡', 'UP': '⬆', 'DOWN': '⬇', 'PASS TURN': '✋', None: '⁉', 'ATTACK': '🗡'}
 
 class D11Data:
@@ -16,27 +15,26 @@ class D11Data:
         self.turn_number = 1
         self.last_player_pos = None  # (x, y)
         self.last_move = None        # move name
-
+        self.has_sent_first_move = False
 
 async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, form_message: bool):
-    import re
-
     # 1. Victory: clean up and exit
     if (
             embed.fields and
             len(embed.fields) > 0 and
             "is dead" in embed.fields[0].value.lower()
     ):
+        print("[D11] Victory detected. Cleaning up.")
         if channel.id in settings.DUNGEON11_HELPERS:
             del settings.DUNGEON11_HELPERS[channel.id]
         return
 
-    # 2. Intro: always send a move and reset state
+    # 2. On intro: send first move (RIGHT) only once
     if embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title:
+        print("[D11] Sending initial move (RIGHT) on intro.")
         data = D11Data()
         data.turn_number = 1
-        data.last_player_pos = None
-        data.last_move = None
+        data.has_sent_first_move = True
         board_text = embed.fields[0].value
         x, y, board = extract_d11_data(board_text)
         move = "RIGHT"
@@ -46,14 +44,17 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
         data.last_move = move
         data.turn_number += 1
         settings.DUNGEON11_HELPERS[channel.id] = data
+        print(f"[D11] Initial state: turn={data.turn_number}, pos=({x},{y}), move={move}")
         return
 
     # 3. Normal move (after intro)
     data = settings.DUNGEON11_HELPERS.get(channel.id)
     if not data:
-        # Recovery: shouldn't happen, but create new data
+        # Shouldn't happen, but recover gracefully
+        print("[D11] No helper data found. Recovering with blank state.")
         data = D11Data()
         data.turn_number = 2
+        data.has_sent_first_move = False
         settings.DUNGEON11_HELPERS[channel.id] = data
 
     # Parse player HP (be defensive)
@@ -67,14 +68,23 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     except Exception:
         data.hp = 0
 
+    # Check for real board (Map field)
+    if len(embed.fields) < 2 or "map" not in embed.fields[1].name.lower():
+        print("[D11] No Map field found, skipping.")
+        return  # Not a real board
+
     board_text = embed.fields[1].value
     x, y, board = extract_d11_data(board_text)
     safe_up_near, safe_up_far, safe_right, safe_left = get_safe_zones(board, x, y)
     move = get_d11_move(board, x, y, data.hp, safe_up_near, safe_up_far, safe_right, safe_left)
 
-    # Only send/patch if the player position or move changed (deduplication)
-    if data.last_player_pos == (x, y) and data.last_move == move:
-        # Nothing new happened, so don't increment turn or resend
+    # DEBUG
+    print(f"[D11] Current: turn={data.turn_number}, pos=({x},{y}), move={move}, has_sent_first_move={data.has_sent_first_move}")
+
+    # Deduplicate: skip if nothing changed or if this is just the first real board after the intro
+    if (data.last_player_pos == (x, y) and data.last_move == move) or (data.has_sent_first_move and data.turn_number == 2):
+        print("[D11] Deduplication: Skipping extra move after intro.")
+        data.has_sent_first_move = False
         return
 
     msg_content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
@@ -88,6 +98,7 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     data.turn_number += 1
     data.last_player_pos = (x, y)
     data.last_move = move
+    data.has_sent_first_move = False  # Only True for the intro move
 
 def make_move_key(x, y, move):
     # Unique key for the move at a given state; could also hash the board, but this is simple

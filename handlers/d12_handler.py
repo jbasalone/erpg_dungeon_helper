@@ -81,21 +81,23 @@ async def handle_d12_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     if len(settings.D12_EDIT_RECENT) > 10000:
         settings.D12_EDIT_RECENT.clear()
 
-    # Use only payload data!
     try:
         channel = await settings.bot.fetch_channel(payload.channel_id)
         embeds = payload.data.get("embeds", [])
         if not embeds:
             return False
         embed = discord.Embed.from_dict(embeds[0])
-        await dung12.handle_dungeon_12(
-            embed=embed,
-            channel=channel,
-            from_new_message=False,
-            bot_answer_message=None,
-            message=None  # <-- No full message fetched!
-        )
+        # Build a fake message object with .embeds and .id, so all logic works:
+        class FakeMessage:
+            def __init__(self, channel, embed, message_id, author_id):
+                self.channel = channel
+                self.embeds = [embed]
+                self.id = message_id
+                self.author = type("Author", (), {"id": author_id})()
+        fake_msg = FakeMessage(channel, embed, payload.message_id, int(payload.data.get("author", {}).get("id", 0)))
+
+        await handle_d12_message(fake_msg, from_new_message=False)
         return True
     except Exception as exc:
-        print(f"[D12] Error in handle_d12_edit: {exc}")
+        print(f"[D12] Error in handle_d12_edit (NO FETCH): {exc}")
         return False

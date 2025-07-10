@@ -276,6 +276,11 @@ async def on_raw_message_edit(payload: discord.RawMessageUpdateEvent):
     ):
         return
 
+    for idx, handler in enumerate(EDIT_HANDLERS):
+        if idx == 2:  # D12 index
+            handled = await handler(payload)
+            if handled:
+                return
     try:
         edited_message = await get_message_with_cache(channel, payload.message_id)
     except Exception:

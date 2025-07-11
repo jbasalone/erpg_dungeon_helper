@@ -3,6 +3,7 @@ import settings
 import dungeon_helpers.dungeon12 as dung12
 import time
 from utils_bot import should_handle_edit, find_last_bot_answer_message
+from utils_cache import get_message_with_cache
 
 
 def is_d12_embed_msg(message: discord.Message) -> bool:
@@ -61,7 +62,9 @@ async def handle_d12_message(message: discord.Message, from_new_message: bool):
     if hasattr(settings, "DUNGEON12_LAST_ANSWER_MSG") and new_answer is not None:
         settings.DUNGEON12_LAST_ANSWER_MSG[message.channel.id] = new_answer
 
+
 async def handle_d12_edit(payload: discord.RawMessageUpdateEvent) -> bool:
+    # Check if payload matches a D12 embed edit
     if not is_d12_embed_edit(payload):
         return False
     if int(payload.data.get("author", {}).get("id", 0)) == settings.BOT_ID:
@@ -74,7 +77,7 @@ async def handle_d12_edit(payload: discord.RawMessageUpdateEvent) -> bool:
     now = time.time()
     last_time = getattr(settings, "D12_EDIT_RECENT", {}).get(key, 0)
     if now - last_time < 1.5:
-        return False
+        return True
     if not hasattr(settings, "D12_EDIT_RECENT"):
         settings.D12_EDIT_RECENT = {}
     settings.D12_EDIT_RECENT[key] = now
@@ -83,21 +86,16 @@ async def handle_d12_edit(payload: discord.RawMessageUpdateEvent) -> bool:
 
     try:
         channel = await settings.bot.fetch_channel(payload.channel_id)
-        embeds = payload.data.get("embeds", [])
-        if not embeds:
+        # Always use the cache when getting the edited message
+        try:
+            message = await get_message_with_cache(channel, payload.message_id)
+        except Exception as exc:
+            print(f"[D12] Error fetching message with cache: {exc}")
             return False
-        embed = discord.Embed.from_dict(embeds[0])
-        # Build a fake message object with .embeds and .id, so all logic works:
-        class FakeMessage:
-            def __init__(self, channel, embed, message_id, author_id):
-                self.channel = channel
-                self.embeds = [embed]
-                self.id = message_id
-                self.author = type("Author", (), {"id": author_id})()
-        fake_msg = FakeMessage(channel, embed, payload.message_id, int(payload.data.get("author", {}).get("id", 0)))
 
-        await handle_d12_message(fake_msg, from_new_message=False)
+        # Call your regular handler using the real discord.Message
+        await handle_d12_message(message, from_new_message=False)
         return True
     except Exception as exc:
-        print(f"[D12] Error in handle_d12_edit (NO FETCH): {exc}")
+        print(f"[D12] Error in handle_d12_edit (cache/fetch): {exc}")
         return False

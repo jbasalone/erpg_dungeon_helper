@@ -99,6 +99,8 @@ def find_index_for_current_position(start_x, start_y, moves, player_x, player_y)
             return idx
     return 0  # fallback
 
+
+
 async def handle_dungeon_12(
         embed: discord.Embed,
         channel: discord.TextChannel,

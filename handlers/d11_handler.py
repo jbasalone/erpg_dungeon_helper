@@ -42,17 +42,15 @@ async def handle_d11_message(
         is_edit: bool = None,
         from_new_message: bool = None
 ):
-    edit = is_edit if is_edit is not None else not from_new_message if from_new_message is not None else False
-
-    # Only deduplicate new messages
-    if not edit:
-        already = getattr(settings, "ALREADY_HANDLED_MESSAGES", [])
-        if message.id in already:
-            return
-        already.append(message.id)
-        if len(already) > 5000:
-            already.clear()
-        settings.ALREADY_HANDLED_MESSAGES = already
+    # Deduplicate by message ID
+    if not hasattr(settings, "D11_HANDLED_MESSAGE_IDS"):
+        settings.D11_HANDLED_MESSAGE_IDS = set()
+    if message.id in settings.D11_HANDLED_MESSAGE_IDS:
+        print(f"[D11] Already handled Discord message id {message.id}")
+        return
+    settings.D11_HANDLED_MESSAGE_IDS.add(message.id)
+    if len(settings.D11_HANDLED_MESSAGE_IDS) > 1000:
+        settings.D11_HANDLED_MESSAGE_IDS.clear()
 
     if not is_channel_allowed(message.channel.id, "d11", settings):
         return
@@ -61,7 +59,7 @@ async def handle_d11_message(
         await d11.handle_d11_move(
             message.embeds[0],
             message.channel,
-            not edit  # True for new messages, False for edits
+            not (is_edit or (from_new_message is not None and not from_new_message))
         )
     except Exception as exc:
         print(f"[D11] Exception in handle_d11_message: {exc}")

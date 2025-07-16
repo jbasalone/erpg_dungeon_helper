@@ -43,7 +43,9 @@ async def handle_d11_message(
         from_new_message: bool = None
 ):
     # Deduplicate by message ID
-    if not hasattr(settings, "D11_HANDLED_MESSAGE_IDS"):
+    if (not hasattr(settings, "D11_HANDLED_MESSAGE_IDS")
+            or not isinstance(settings.D11_HANDLED_MESSAGE_IDS, set)):
+        print("[WARN] D11_HANDLED_MESSAGE_IDS was missing or not a set. Resetting to set()!")
         settings.D11_HANDLED_MESSAGE_IDS = set()
     if message.id in settings.D11_HANDLED_MESSAGE_IDS:
         print(f"[D11] Already handled Discord message id {message.id}")

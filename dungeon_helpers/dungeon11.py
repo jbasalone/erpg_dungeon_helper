@@ -90,13 +90,13 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
         return
 
     msg_content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
-    try:
+    if form_message:  # LEGACY: always send a new message per move!
+        data.message = await channel.send(msg_content)
+    else:  # SLASH: edit last move message if possible
         if data.message is not None:
             await data.message.edit(content=msg_content)
         else:
             data.message = await channel.send(msg_content)
-    except Exception:
-        data.message = await channel.send(msg_content)
 
     data.turn_number += 1
     data.last_player_pos = (x, y)

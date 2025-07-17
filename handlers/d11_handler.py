@@ -5,7 +5,6 @@ from utils_bot import is_channel_allowed, should_handle_edit
 import dungeon_helpers.dungeon11 as d11
 from utils_cache import get_message_with_cache
 
-
 def is_d11_embed_msg(message: discord.Message) -> bool:
     if message.author.id != settings.EPIC_RPG_ID or not message.embeds:
         return False
@@ -23,18 +22,6 @@ def is_d11_embed_msg(message: discord.Message) -> bool:
     if embed.title and 'you have encountered **the ultra-edgy dragon**' in embed.title.lower():
         return True
     return False
-
-def is_d11_embed_edit(payload: discord.RawMessageUpdateEvent) -> bool:
-    try:
-        author_id = int(payload.data.get("author", {}).get("id", 0))
-        embeds = payload.data.get("embeds", [])
-        if author_id != settings.EPIC_RPG_ID or not embeds:
-            return False
-        embed = discord.Embed.from_dict(embeds[0])
-        return d11.is_d11_embed(embed, author_id)
-    except Exception as exc:
-        print(f"[D11 Edit] Failed to check edit: {exc}")
-        return False
 
 async def handle_d11_message(
         message: discord.Message,
@@ -61,24 +48,11 @@ async def handle_d11_message(
         await d11.handle_d11_move(
             message.embeds[0],
             message.channel,
-            not (is_edit or (from_new_message is not None and not from_new_message))
+            True  # LEGACY: always send a new message per move
         )
     except Exception as exc:
         print(f"[D11] Exception in handle_d11_message: {exc}")
 
+# (Edits are never used in legacy! But leave this for API symmetry)
 async def handle_d11_edit(payload: discord.RawMessageUpdateEvent) -> bool:
-    if not is_d11_embed_edit(payload):
-        return False
-    author_id = int(payload.data.get("author", {}).get("id", 0))
-    if author_id == settings.BOT_ID:
-        return False
-    if payload.channel_id not in settings.DUNGEON11_HELPERS and not should_handle_edit(payload, "d11"):
-        return False
-    try:
-        channel = await settings.bot.fetch_channel(payload.channel_id)
-        message = await get_message_with_cache(channel, payload.message_id)
-        await handle_d11_message(message, is_edit=True)
-        return True
-    except Exception as exc:
-        print(f"[D11] Exception in handle_d11_edit: {exc}")
-        return False
+    return False

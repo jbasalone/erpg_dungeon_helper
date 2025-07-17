@@ -11,39 +11,42 @@ MOVE_TO_EMOJI = {'LEFT': '⬅', 'RIGHT': '➡', 'UP': '⬆', 'DOWN': '⬇', 'PAS
 
 class D11Data:
     def __init__(self):
-        self.message: discord.Message = None
         self.hp = None
         self.turn_number = 1
-        self.last_player_pos = None  # (x, y)
-        self.last_move = None        # move name
-        self.last_board_hash = None  # hash(board)
-        self.has_sent_first_move = False
+        self.last_player_pos = None
+        self.last_move = None
+        self.last_board_hash = None
 
 def hash_board(board):
     return hashlib.sha1(str(board).encode('utf-8')).hexdigest()
 
 async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, form_message: bool):
+    # 1. Victory check
     if (
             embed.fields and
             len(embed.fields) > 0 and
             "is dead" in embed.fields[0].value.lower()
     ):
         print("[D11] Victory detected. Cleaning up.")
+        # Send congrats!
+        await channel.send(
+            "🎉 **CONGRATULATIONS!** You have slain **THE ULTRA-EDGY DRAGON** and unlocked the next area! 🏆\n"
+        )
         if channel.id in settings.DUNGEON11_HELPERS:
             del settings.DUNGEON11_HELPERS[channel.id]
         return
 
+    # 2. Intro (always send RIGHT as move 1)
     if embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title:
         print("[D11] Sending initial move (RIGHT) on intro.")
         data = D11Data()
         data.turn_number = 1
-        data.has_sent_first_move = True
         board_text = embed.fields[0].value
         x, y, board = extract_d11_data(board_text)
         board_hash = hash_board(board)
         move = "RIGHT"
         content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
-        data.message = await channel.send(content)
+        await channel.send(content)
         data.last_player_pos = (x, y)
         data.last_move = move
         data.last_board_hash = board_hash
@@ -52,14 +55,18 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
         print(f"[D11] Initial state: turn={data.turn_number}, pos=({x},{y}), move={move}")
         return
 
+    # 3. Standard board after intro
     data = settings.DUNGEON11_HELPERS.get(channel.id)
     if not data:
         print("[D11] No helper data found. Recovering with blank state.")
         data = D11Data()
-        data.turn_number = 2
-        data.has_sent_first_move = False
+        # Force dedup to always send the next move
+        data.last_player_pos = (-999, -999)
+        data.last_move = None
+        data.last_board_hash = ""
         settings.DUNGEON11_HELPERS[channel.id] = data
 
+    # Parse HP
     data.hp = 0
     try:
         for field in embed.fields:
@@ -80,36 +87,24 @@ async def handle_d11_move(embed: discord.Embed, channel: discord.TextChannel, fo
     safe_up_near, safe_up_far, safe_right, safe_left = get_safe_zones(board, x, y)
     move = get_d11_move(board, x, y, data.hp, safe_up_near, safe_up_far, safe_right, safe_left)
 
+    # Dedup: only skip if exact same state (never true after blank recovery)
     if (
             data.last_player_pos == (x, y) and
             data.last_move == move and
             data.last_board_hash == board_hash
-    ) or (data.has_sent_first_move and data.turn_number == 2):
-        print("[D11] Deduplication: Skipping extra move after intro or no state change.")
-        data.has_sent_first_move = False
+    ):
+        print("[D11] Deduplication: Skipping duplicate move.")
         return
 
     msg_content = f"> **{data.turn_number}. {move} {MOVE_TO_EMOJI[move]}**"
-    if form_message:  # LEGACY: always send a new message per move!
-        data.message = await channel.send(msg_content)
-    else:  # SLASH: edit last move message if possible
-        if data.message is not None:
-            await data.message.edit(content=msg_content)
-        else:
-            data.message = await channel.send(msg_content)
+    await channel.send(msg_content)
 
     data.turn_number += 1
     data.last_player_pos = (x, y)
     data.last_move = move
     data.last_board_hash = board_hash
-    data.has_sent_first_move = False
-
-def make_move_key(x, y, move):
-    # Unique key for the move at a given state; could also hash the board, but this is simple
-    return f"{x}:{y}:{move}"
 
 def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_left):
-    # 1. High HP (aggressive mode): Always go UP if possible, even on fire
     if hp >= 10000:
         if x == 7 and y == 0:
             return "ATTACK"
@@ -121,10 +116,8 @@ def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_le
             return "LEFT"
         return "PASS TURN"
 
-    # 2. Standard logic for normal HP
     if x == 7 and y == 0:
         return "ATTACK"
-
     if x < 5 and y > 4 and safe_up_near and safe_right and board[y - 1][x + 1] == 0:
         return "RIGHT"
 
@@ -152,7 +145,6 @@ def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_le
     if 'P' in encoded_possible_moves:
         possible_moves.add('PASS TURN')
 
-    # Additional scenario logic
     if not safe_up_near and safe_right and board[y - 1][x + 1] == 0:
         print('CUSTOM SCENARIO --> 2')
         possible_moves.add("RIGHT")
@@ -184,7 +176,6 @@ def get_d11_move(board, x, y, hp, safe_up_near, safe_up_far, safe_right, safe_le
             return move
 
 def get_safe_zones(board: list[list[int]], x: int, y: int):
-    # Checks for safe tiles in various directions
     if y > 1 and board[y - 1][x] == 0 and board[y - 2][x] == 0:
         safe_up_near = True
     else:
@@ -223,81 +214,3 @@ def extract_d11_data(board_text: str):
                 map_line.append(0)
         board.append(map_line)
     return x, y, board
-
-def is_d11_embed(embed: discord.Embed, author_id: int):
-    return (author_id in (settings.EPIC_RPG_ID, settings.UTILITY_NECROBOT_ID, settings.BETA_BOT_ID)
-            and ((embed.author.name and ' — dungeon' in embed.author.name)
-                 or (embed.title and 'YOU HAVE ENCOUNTERED **THE ULTRA-EDGY DRAGON**' in embed.title))
-            and embed.fields
-            and ('D11_Dragon' in embed.fields[0].name or 'ULTRAEDGYdragon' in embed.fields[0].name))
-
-def print_d11_board(board_code):
-    count = 0
-    for letter in board_code:
-        if letter == '0':
-            print('S', end='')
-        else:
-            print('F', end='')
-        count += 1
-        if count % 3 == 0:
-            count = 0
-            print()
-    print('FPF')
-
-def run_d11_simulations(board: list[list[int]], hp: int, x: int, y: int,
-                        max_simulation_count: int, max_turns_count: int):
-    initial_board = copy.deepcopy(board)
-    initial_hp = hp
-    turns = 0
-    total_simulations = 0
-    path = []
-    best_path = []
-    best_hp = -10000
-    while True:
-        if total_simulations >= max_simulation_count:
-            return best_path, best_hp
-        new_line = [random.randint(0, 1) for i in range(0, 8)]
-        allowed_moves = ['PASS TURN']
-        if x > 0:
-            allowed_moves.append('LEFT')
-        if x < 7:
-            allowed_moves.append('RIGHT')
-        if y > 0:
-            allowed_moves.append('UP')
-        dung_move = random.choice(allowed_moves)
-        if dung_move == 'LEFT':
-            if (y > 0 and board[y - 1][x - 1] == 1) or (y == 0 and new_line[x - 1] == 1):
-                hp -= 100
-            x -= 1
-        elif dung_move == 'RIGHT':
-            if (y > 0 and board[y - 1][x + 1] == 1) or (y == 0 and new_line[x + 1] == 1):
-                hp -= 100
-            x += 1
-        elif dung_move == 'UP':
-            if board[y - 1][x] == 1 or (y >= 1 and board[y - 2][x]) == 1 or (y == 1 and new_line[x] == 1):
-                hp -= 100
-            y -= 1
-        elif dung_move == 'DOWN':
-            if board[y + 1][x] == 1:
-                hp -= 100
-            y += 1
-        elif dung_move == 'PASS TURN':
-            if (y > 0 and board[y - 1][x] == 1) or (y == 0 and new_line[x] == 1):
-                hp -= 110
-            else:
-                hp -= 10
-        if hp <= 0 or turns >= max_turns_count:
-            total_simulations += 1
-            if hp > best_hp:
-                best_path = path
-                best_hp = hp
-            turns = 0
-            hp = initial_hp
-            board = copy.deepcopy(initial_board)
-            path = []
-            continue
-        path.append(dung_move)
-        for i in range(7, 0, -1):
-            board[i] = board[i - 1]
-        board[0] = new_line
-        turns += 1

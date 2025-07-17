@@ -37,6 +37,7 @@ BETA_BOT_ID = 949425955653439509
 D14_LAST_SENT_ACTION = {}
 D14_LAST_DISPLAY = {} # channel_id: last_displayed_content
 D14_PREV_MAP = {}
+LAST_STATUS_CONTENT = {}
 
 
 RANDOM_EMOJIS = "🎈🎆🎇🧨✨🎉🎊🎃🎄🎋🎍🎎🎏🎐🎑🧧🎀🎁🎗🎞🎟🎫🎠🎡🎡🛒🧶🧵🎨🖼🎭🎪🎢👓🕶🦺🥽🥼🧥👔👕❤🧡💛💚💙💜" \
@@ -229,19 +230,20 @@ async def solve_d14_c(
             break
 
         if time_passed % 5 == 0 and not best_solution:
-            new_content = (
-                f"> 🕓 - **{int(time_passed)} seconds passed** - [after 20 seconds it's recommended to go to a brown tile!]"
-            )
-            await edit_dedupe.safe_edit(inital_message, content=new_content, view=brown_view)
+            if LAST_STATUS_CONTENT.get(inital_message.channel.id) != new_content:
+                await edit_dedupe.safe_edit(inital_message, content=new_content, view=brown_view)
+                LAST_STATUS_CONTENT[inital_message.channel.id] = new_content
 
         elif time_passed % 5 == 0 and best_solution:
-            new_content = (
-                f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
-                f"[{int(time_passed)} seconds passed]**\n\n"
-                f"📶 **Best solution length: {len(best_solution)}**\n"
-                f"❤ **HP Required: {best_hp_lost}**"
-            )
-            await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
+            if LAST_STATUS_CONTENT.get(inital_message.channel.id) != new_content:
+                new_content = (
+                    f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
+                    f"[{int(time_passed)} seconds passed]**\n\n"
+                    f"📶 **Best solution length: {len(best_solution)}**\n"
+                    f"❤ **HP Required: {best_hp_lost}**"
+                )
+                await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
+                LAST_STATUS_CONTENT[inital_message.channel.id] = new_content
 
         if brown_view.is_finished():
             try:
@@ -266,7 +268,9 @@ async def solve_d14_c(
         f"📶 **Best solution length: {len(best_solution)}**\n"
         f"❤ **HP Required: {best_hp_lost}**"
     )
-    await edit_dedupe.safe_edit(inital_message, content=final_content, view=None)
+    if LAST_STATUS_CONTENT.get(inital_message.channel.id) != final_content:
+        await edit_dedupe.safe_edit(inital_message, content=final_content, view=None)
+    LAST_STATUS_CONTENT[inital_message.channel.id] = final_content
 
     return best_solution, best_solution_tiles, attempts, best_hp_lost, time_taken
 

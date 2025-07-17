@@ -5,6 +5,7 @@ import settings
 import time
 from typing import Optional, Tuple, Dict
 from utils_patch import edit_dedupe
+from dung_helpers import LAST_STATUS_CONTENT
 
 from dung_helpers import (
     is_d14_embed,
@@ -58,6 +59,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
         LAST_BOT_MSG.pop(channel.id, None)
         LAST_D14_PLAN.pop(channel.id, None)
         LAST_D14_HANDLED.pop(channel.id, None)
+        LAST_STATUS_CONTENT.pop(channel.id, None)
     if not is_channel_allowed(message.channel.id, "d14", settings) or not message.embeds:
         return
     if channel.id in VICTORY_SENT:
@@ -83,6 +85,7 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
             last_bot = LAST_BOT_MSG.pop(channel.id, None)
             LAST_D14_PLAN.pop(channel.id, None)
             LAST_D14_HANDLED.pop(channel.id, None)
+            LAST_STATUS_CONTENT.pop(channel.id, None)
             if last_bot:
                 await edit_dedupe.safe_edit(last_bot, content="> <:ep_greenleaf:1375735418292801567> **CONGRATULATIONS** 🎉")
             else:
@@ -144,10 +147,12 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
     if plan:
         solution, tiles_path, hp_req, elapsed, prev_step, prev_Y, prev_X = plan
         print(f"[D14 PLAN] step={prev_step}, pos={(Y,X)}, prev={(prev_Y,prev_X)}")
-
         if prev_step < len(solution):
             next_move = solution[prev_step]
             expected_pos = tiles_path[prev_step]
+            print(f"[D14 DEBUG] prev_step={prev_step}, plan_move={next_move}, expected={expected_pos}, actual={(Y, X)}")
+            print(f"[D14 DEBUG] tiles_path={tiles_path}")
+            print(f"[D14 DEBUG] solution={solution}")
             # ATTACK/PASS TURN: must stay on same tile
             if next_move in ("ATTACK", "PASS TURN") and (Y, X) == (prev_Y, prev_X):
                 step = prev_step + 1
@@ -225,7 +230,9 @@ async def handle_d14_message(message: discord.Message, from_new_message: bool = 
     color_val = MAP[tile_yx[0]][tile_yx[1]]
     color_name = dung_helpers.D14ids_TILES_DICT.get(color_val, str(color_val)).capitalize()
     out = f"> **{emoji} {move}** to {color_name} {tile_yx} [{turns_left} turns left]\n"
-
+    if LAST_STATUS_CONTENT.get(channel.id) == out:
+        return  # Already said this, don't repeat/send
+    LAST_STATUS_CONTENT[channel.id] = out
     if is_slash:
         last_msg = LAST_BOT_MSG.get(channel.id)
         try:

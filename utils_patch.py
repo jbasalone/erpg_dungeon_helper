@@ -62,7 +62,7 @@ class EditDeduplicator:
         # key = msg.id, value = (last_content, last_view, last_edit_time)
         self.last_edit = {}
 
-    async def safe_edit(self, message, content=None, view=None, min_delay=4.0):
+    async def safe_edit(self, message, content=None, view=None, min_delay=1.5):
         key = message.id
         now = time.monotonic()
         last_content, last_view, last_time = self.last_edit.get(key, (None, None, 0))

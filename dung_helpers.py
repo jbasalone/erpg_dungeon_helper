@@ -165,6 +165,16 @@ async def solve_d14_c(
     brown_view = BrownSearchView()
     hp_view = HighHpSolutionView()
 
+    def _status_content(seconds: float, best_len: int, best_hp: int) -> str:
+        header = (f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
+                  f"[{int(seconds)} seconds passed]**\n\n")
+        if best_len > 0:
+            body = (f"📶 **Best solution length: {best_len}**\n"
+                    f"❤ **HP Required: {best_hp}**")
+        else:
+            body = "📶 **Searching...**"
+        return header + body
+
     while True:
         await asyncio.sleep(0.5)
         time_passed += 0.5
@@ -193,13 +203,9 @@ async def solve_d14_c(
                     best_solution_tiles = tiles_of_solution
                     best_hp_lost = hp_lost
 
-                    new_content = (
-                        f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
-                        f"[{int(time_passed)} seconds passed]**\n\n"
-                        f"📶 **Best solution length: {len(best_solution)}**\n"
-                        f"❤ **HP Required: {best_hp_lost}**"
-                    )
+                    new_content = _status_content(time_passed, len(best_solution), best_hp_lost)
                     await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
+                    LAST_STATUS_CONTENT[inital_message.channel.id] = new_content
                 proc = await asyncio.create_subprocess_exec(
                     program, *new_board,
                     *[str(i) for i in (Y, X, HP, yellow_poison, orange_poison)],
@@ -230,18 +236,14 @@ async def solve_d14_c(
             break
 
         if time_passed % 5 == 0 and not best_solution:
+            new_content = _status_content(time_passed, 0, 0)
             if LAST_STATUS_CONTENT.get(inital_message.channel.id) != new_content:
                 await edit_dedupe.safe_edit(inital_message, content=new_content, view=brown_view)
                 LAST_STATUS_CONTENT[inital_message.channel.id] = new_content
 
         elif time_passed % 5 == 0 and best_solution:
+            new_content = _status_content(time_passed, len(best_solution), best_hp_lost)
             if LAST_STATUS_CONTENT.get(inital_message.channel.id) != new_content:
-                new_content = (
-                    f"> <:ep_greenleaf:1375735418292801567> I am still looking for better solutions... "
-                    f"[{int(time_passed)} seconds passed]**\n\n"
-                    f"📶 **Best solution length: {len(best_solution)}**\n"
-                    f"❤ **HP Required: {best_hp_lost}**"
-                )
                 await edit_dedupe.safe_edit(inital_message, content=new_content, view=hp_view)
                 LAST_STATUS_CONTENT[inital_message.channel.id] = new_content
 
